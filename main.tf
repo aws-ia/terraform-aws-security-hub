@@ -13,7 +13,7 @@ resource "aws_securityhub_finding_aggregator" "this" {
 
 resource "aws_securityhub_product_subscription" "this" {
   for_each    = var.product_config != null ? { for product in var.product_config : product.arn => product } : {}
-  product_arn = each.value
+  product_arn = each.value.arn
 
   depends_on = [aws_securityhub_account.this]
 }
@@ -25,7 +25,7 @@ resource "aws_securityhub_standards_subscription" "this" {
 
   depends_on = [aws_securityhub_account.this]
 }
-
+/* 
 resource "aws_securityhub_standards_control" "this" {
   for_each = var.standards_config != null ? { for standards in local.standards_subscription : standards.arn => standards if standards.enable } : {}
 
@@ -34,7 +34,7 @@ resource "aws_securityhub_standards_control" "this" {
 
   depends_on = [aws_securityhub_standards_subscription.this]
 }
-
+ */
 resource "aws_securityhub_action_target" "this" {
   for_each = var.action_target != null ? { for target in var.action_target : target.identifier => target } : {}
 
@@ -45,7 +45,7 @@ resource "aws_securityhub_action_target" "this" {
   depends_on = [aws_securityhub_account.this]
 }
 
-  /*
+/*
 resource "aws_securityhub_insight" "this" {
   for_each = var.insight_config != null ? { for insight in var.insight_config : insight.name => insight } : {}
 

@@ -8,7 +8,7 @@ locals {
       {
         arn = "arn:aws:securityhub:::ruleset/cis-aws-foundations-benchmark/v/1.2.0"
     }) : null
-    cis_aws_foundations_benchmark_v140 = var.standards_config != null ?  merge(var.standards_config.cis_aws_foundations_benchmark_v140,
+    cis_aws_foundations_benchmark_v140 = var.standards_config != null ? merge(var.standards_config.cis_aws_foundations_benchmark_v140,
       {
         arn = "arn:aws:securityhub:${data.aws_region.current.name}::standards/cis-aws-foundations-benchmark/v/1.4.0"
     }) : null

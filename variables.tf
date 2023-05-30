@@ -105,13 +105,10 @@ variable "action_target" {
     identifier  = string
     description = string
   }))
-  default = [{
-    name = "Send to Amazon SNS"
-    identifier = "SendToSNS"
-    description = "This is a custom action to send findings to SNS Topic"
-  }]
+  default = []
 }
 
+/* 
 variable "insight_config" {
   description = <<EOF
  Provides a Security Hub custom insight resource.
@@ -138,5 +135,6 @@ variable "insight_config" {
         value      = "09876543210"
       }
     }
-  }]
+  }] 
 }
+*/
