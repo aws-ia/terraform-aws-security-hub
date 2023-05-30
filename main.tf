@@ -45,6 +45,7 @@ resource "aws_securityhub_action_target" "this" {
   depends_on = [aws_securityhub_account.this]
 }
 
+  /*
 resource "aws_securityhub_insight" "this" {
   for_each = var.insight_config != null ? { for insight in var.insight_config : insight.name => insight } : {}
 
@@ -61,8 +62,6 @@ resource "aws_securityhub_insight" "this" {
     }
   }
 
-
-  /*
     dynamic "filters" {
       for_each = each.value.filters
       content {
