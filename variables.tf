@@ -108,7 +108,7 @@ variable "action_target" {
   default = []
 }
 
-/* 
+/*
 variable "insight_config" {
   description = <<EOF
  Provides a Security Hub custom insight resource.
@@ -135,6 +135,6 @@ variable "insight_config" {
         value      = "09876543210"
       }
     }
-  }] 
+  }]
 }
 */

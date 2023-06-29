@@ -1,10 +1,37 @@
-provider "aws" {}
+provider "aws" {
+  shared_config_files      = ["~/.aws/config"]
+  shared_credentials_files = ["~/.aws/credentials"]
+  profile                  = "member"
+  alias                    = "member"
+}
 
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 
-module "standalone_security_hub" {
+module "delegated_admin" {
+  source = "../../../modules/organizations_admin/"
+
+  admin_account_id      = data.aws_caller_identity.current.account_id
+  auto_enable_standards = "DEFAULT"
+}
+
+module "member_account" {
+  source = "../../../modules/organizations_member/"
+
+  providers = {
+    aws        = aws
+    aws.member = aws.member
+  }
+
+  member_config = [{
+    account_id = "281190191734"
+    email      = "required@example.com"
+    invite     = false
+  }]
+}
+
+module "organizations_security_hub" {
   source = "../../../"
 
   enable_default_standards  = false
@@ -52,7 +79,7 @@ resource "aws_securityhub_standards_control" "ensure_iam_password_policy_prevent
   control_status        = "DISABLED"
   disabled_reason       = "Password policies are managed by external resource"
 
-  depends_on = [module.standalone_security_hub]
+  depends_on = [module.organizations_security_hub]
 }
 
 # Security Hub Insights Examples
@@ -91,5 +118,5 @@ resource "aws_securityhub_insight" "this" {
 
   name = "insight-per-account-id"
 
-  depends_on = [module.standalone_security_hub]
+  depends_on = [module.organizations_security_hub]
 }
