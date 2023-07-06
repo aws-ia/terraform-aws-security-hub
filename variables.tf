@@ -1,3 +1,6 @@
+##################################################
+# Security Hub
+##################################################
 variable "enable_default_standards" {
   description = "Whether to enable the security standards that Security Hub has designated as automatically enabled including: AWS Foundational Security Best Practices v1.0.0 and CIS AWS Foundations Benchmark v1.2.0. Defaults to `true`."
   type        = bool
@@ -10,25 +13,16 @@ variable "control_finding_generator" {
   default     = "STANDARD_CONTROL"
 }
 
-variable "auto_enable_controls" {
-  description = "Whether to automatically enable new controls when they are added to standards that are enabled. By default, this is set to true, and new controls are enabled automatically. To not automatically enable new controls, set this to false."
-  type        = bool
-  default     = true
-}
-
-variable "product_config" {
-  description = "The ARN of the product that generates findings that you want to import into Security Hub."
-  type = list(object({
-    enable = bool
-    arn    = string
-  }))
-  default = null
-}
-
 variable "linking_mode" {
   description = "Indicates whether to aggregate findings from all of the available Regions or from a specified list. The options are ALL_REGIONS, ALL_REGIONS_EXCEPT_SPECIFIED or SPECIFIED_REGIONS. When ALL_REGIONS or ALL_REGIONS_EXCEPT_SPECIFIED are used, Security Hub will automatically aggregate findings from new Regions as Security Hub supports them and you opt into them."
   type        = string
   default     = "ALL_REGIONS"
+}
+
+variable "auto_enable_controls" {
+  description = "Whether to automatically enable new controls when they are added to standards that are enabled. By default, this is set to true, and new controls are enabled automatically. To not automatically enable new controls, set this to false."
+  type        = bool
+  default     = true
 }
 
 variable "specified_regions" {
@@ -37,6 +31,9 @@ variable "specified_regions" {
   default     = null
 }
 
+##################################################
+# Security Hub Subscriptions
+##################################################
 variable "standards_config" {
   description = <<EOF
   `aws_foundational_security_best_practices` - AWS Foundational Security Best Practices
@@ -93,6 +90,18 @@ variable "standards_config" {
   }
 }
 
+variable "product_config" {
+  description = "The ARN of the product that generates findings that you want to import into Security Hub."
+  type = list(object({
+    enable = bool
+    arn    = string
+  }))
+  default = null
+}
+
+##################################################
+# Security Hub Action Targets
+##################################################
 variable "action_target" {
   description = <<EOF
   Creates Security Hub custom action.
@@ -107,34 +116,3 @@ variable "action_target" {
   }))
   default = []
 }
-
-/*
-variable "insight_config" {
-  description = <<EOF
- Provides a Security Hub custom insight resource.
- `name`     - The name of the custom insight.
- `group_by` - The attribute used to group the findings for the insight e.g., if an insight is grouped by ResourceId, then the insight produces a list of resource identifiers.
- `filters`   - A configuration block including one or more (up to 10 distinct) attributes used to filter the findings included in the insight. The insight only includes findings that match criteria defined in the filters.
- EOF
-  type = list(object({
-    name     = string
-    group_by = string
-    filters  = map(any)
-  }))
-  default = [{
-    name     = "test"
-    group_by = "AwsAccountId"
-    filters = {
-      aws_account_id_1 = {
-        comparison = "EQUALS"
-        value      = "1234567890"
-      }
-
-      aws_account_id_2 = {
-        comparison = "EQUALS"
-        value      = "09876543210"
-      }
-    }
-  }]
-}
-*/

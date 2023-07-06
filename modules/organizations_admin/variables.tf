@@ -1,3 +1,6 @@
+##################################################
+# Security Hub Delegated Admin
+##################################################
 variable "admin_account_id" {
   description = "AWS Organizations Admin Account Id. Defaults to `null`"
   type        = string

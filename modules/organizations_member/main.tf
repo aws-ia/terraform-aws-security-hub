@@ -1,3 +1,6 @@
+##################################################
+# Security Hub Account Member
+##################################################
 resource "aws_securityhub_member" "this" {
   for_each = var.member_config != null ? { for member in var.member_config : member.account_id => member } : {}
 
@@ -11,6 +14,9 @@ resource "aws_securityhub_account" "member" {
   provider = aws.member
 }
 
+##################################################
+# Security Hub Invite
+##################################################
 resource "aws_securityhub_invite_accepter" "member" {
   for_each = var.member_config != null ? { for member in var.member_config : member.account_id => member if member.invite } : {}
   provider = aws.member

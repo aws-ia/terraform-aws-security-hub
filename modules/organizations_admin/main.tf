@@ -1,3 +1,6 @@
+##################################################
+# Security Hub Delegated Admin
+##################################################
 resource "aws_securityhub_organization_admin_account" "this" {
   count            = var.admin_account_id == null ? 0 : 1
   admin_account_id = var.admin_account_id

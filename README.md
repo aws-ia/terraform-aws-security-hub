@@ -1,20 +1,31 @@
-# Terraform Module for AWS GuardDuty
+# Terraform Module for AWS Security Hub
 
-- [Terraform Module for AWS GuardDuty](#terraform-module-for-aws-guardduty)
-  - [Overview Diagrams](#overview-diagrams)
-    - [Stand-Alone](#stand-alone)
+Terraform module that creates AWS Security Hub resources.
+
+- [Terraform Module for AWS Security Hub](#terraform-module-for-aws-security-hub)
+  - [Usage](#usage)
+    - [Standalone](#standalone)
     - [Organizations](#organizations)
+  - [Overview Diagrams](#overview-diagrams)
+    - [Standalone](#standalone-1)
+    - [Organizations](#organizations-1)
   - [Terraform Module](#terraform-module)
 
-## Overview Diagrams
+## Usage
 
-### Stand-Alone
-
-![standalone-diagram](./docs/StandaloneGuardDuty\_v1.png)
+### Standalone
 
 ### Organizations
 
-![organizations-diagram](./docs/OrgGuardDuty\_v1.png)
+## Overview Diagrams
+
+### Standalone
+
+![standalone-diagram](./docs/StandaloneSecurityHub\_v1.png)
+
+### Organizations
+
+![organizations-diagram](./docs/OrgsSecurityHub\_v1.png)
 
 ## Terraform Module
 
@@ -61,4 +72,10 @@ No modules.
 
 ### Outputs
 
-No outputs.
+| Name | Description |
+|------|-------------|
+| <a name="output_action_target"></a> [action\_target](#output\_action\_target) | Security Hub custome action targets. |
+| <a name="output_finding_aggregator"></a> [finding\_aggregator](#output\_finding\_aggregator) | Security Hub finding aggregator configuration. |
+| <a name="output_product_subscription"></a> [product\_subscription](#output\_product\_subscription) | Security Hub products subscriptions. |
+| <a name="output_securityhub_account"></a> [securityhub\_account](#output\_securityhub\_account) | Security Hub AWS account configuration. |
+| <a name="output_standards_subscription"></a> [standards\_subscription](#output\_standards\_subscription) | Security Hub compliance standards subscriptions. |

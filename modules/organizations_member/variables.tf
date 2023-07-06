@@ -1,3 +1,6 @@
+##################################################
+# Security Hub Account Member
+##################################################
 variable "member_config" {
   description = <<EOF
   Specifies the member account configuration:

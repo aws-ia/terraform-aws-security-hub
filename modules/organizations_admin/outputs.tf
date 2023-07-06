@@ -1,3 +1,6 @@
+##################################################
+# Security Hub Delegated Admin
+##################################################
 output "securityhub_delegated_admin_account" {
   description = "AWS Security Hub Delegated Admin account."
   value       = aws_securityhub_organization_admin_account.this
