@@ -68,7 +68,6 @@ module "organizations_security_hub" {
     identifier  = "SendToSNS"
     description = "This is a custom action to send findings to SNS Topic"
   }]
-
 }
 
 # Security Hub Standards Control Example
