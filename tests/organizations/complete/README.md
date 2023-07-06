@@ -36,4 +36,6 @@ No inputs.
 
 | Name | Description |
 |------|-------------|
-| <a name="output_delegated_admin"></a> [delegated\_admin](#output\_delegated\_admin) | AWS Security Hub delegated admin |
+| <a name="output_delegated_admin"></a> [delegated\_admin](#output\_delegated\_admin) | AWS Security Hub Delegated admin. |
+| <a name="output_member"></a> [member](#output\_member) | Organizations account member AWS Security Hub. |
+| <a name="output_organizations_security_hub"></a> [organizations\_security\_hub](#output\_organizations\_security\_hub) | Organizations AWS Security Hub Configuration. |
