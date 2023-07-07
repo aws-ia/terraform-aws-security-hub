@@ -34,11 +34,18 @@ resource "aws_securityhub_account" "this" {
   auto_enable_controls      = var.auto_enable_controls
 }
 
+resource "time_sleep" "wait_securityhub_enable" {
+
+  create_duration = "10s"
+
+  depends_on = [aws_securityhub_account.this]
+}
+
 resource "aws_securityhub_finding_aggregator" "this" {
   linking_mode      = var.linking_mode
   specified_regions = var.specified_regions
 
-  depends_on = [aws_securityhub_account.this]
+  depends_on = [time_sleep.wait_securityhub_enable]
 }
 
 ##################################################
@@ -48,7 +55,7 @@ resource "aws_securityhub_product_subscription" "this" {
   for_each    = var.product_config != null ? { for product in var.product_config : product.arn => product } : {}
   product_arn = each.value.arn
 
-  depends_on = [aws_securityhub_account.this]
+  depends_on = [time_sleep.wait_securityhub_enable]
 }
 
 resource "aws_securityhub_standards_subscription" "this" {
@@ -56,7 +63,7 @@ resource "aws_securityhub_standards_subscription" "this" {
 
   standards_arn = each.value.arn
 
-  depends_on = [aws_securityhub_account.this]
+  depends_on = [time_sleep.wait_securityhub_enable]
 }
 
 ##################################################
@@ -69,5 +76,5 @@ resource "aws_securityhub_action_target" "this" {
   identifier  = each.value.identifier
   description = each.value.description
 
-  depends_on = [aws_securityhub_account.this]
+  depends_on = [time_sleep.wait_securityhub_enable]
 }

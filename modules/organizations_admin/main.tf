@@ -9,4 +9,6 @@ resource "aws_securityhub_organization_admin_account" "this" {
 resource "aws_securityhub_organization_configuration" "this" {
   auto_enable           = true
   auto_enable_standards = var.auto_enable_standards
+
+  depends_on = [aws_securityhub_organization_admin_account.this]
 }

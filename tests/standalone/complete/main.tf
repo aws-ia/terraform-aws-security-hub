@@ -60,14 +60,6 @@ resource "aws_securityhub_standards_control" "ensure_iam_password_policy_prevent
 
 resource "aws_securityhub_insight" "this" {
   filters {
-    aws_account_id {
-      comparison = "EQUALS"
-      value      = "123456789012"
-    }
-    aws_account_id {
-      comparison = "EQUALS"
-      value      = "098765432109"
-    }
     created_at {
       date_range {
         unit  = "DAYS"
@@ -89,7 +81,7 @@ resource "aws_securityhub_insight" "this" {
 
   group_by_attribute = "AwsAccountId"
 
-  name = "insight-per-account-id"
+  name = "insight"
 
   depends_on = [module.standalone_security_hub]
 }

@@ -66,14 +66,6 @@ resource "aws_securityhub_standards_control" "ensure_iam_password_policy_prevent
 
 resource "aws_securityhub_insight" "this" {
   filters {
-    aws_account_id {
-      comparison = "EQUALS"
-      value      = "123456789012"
-    }
-    aws_account_id {
-      comparison = "EQUALS"
-      value      = "098765432109"
-    }
     created_at {
       date_range {
         unit  = "DAYS"
@@ -95,9 +87,9 @@ resource "aws_securityhub_insight" "this" {
 
   group_by_attribute = "AwsAccountId"
 
-  name = "insight-per-account-id"
+  name = "insight"
 
-  depends_on = [module.security_hub]
+  depends_on = [module.standalone_security_hub]
 }
 ```
 
@@ -164,6 +156,42 @@ module "security_hub" {
     description = "This is a custom action to send findings to SNS Topic"
   }]
 }
+
+resource "aws_securityhub_insight" "this" {
+  filters {
+    aws_account_id {
+      comparison = "EQUALS"
+      value      = "123456789012"
+    }
+    aws_account_id {
+      comparison = "EQUALS"
+      value      = "098765432109"
+    }
+    created_at {
+      date_range {
+        unit  = "DAYS"
+        value = 7
+      }
+    }
+    network_source_ipv4 {
+      cidr = "10.0.0.0/16"
+    }
+    criticality {
+      gte = "80"
+    }
+    resource_tags {
+      comparison = "EQUALS"
+      key        = "Environment"
+      value      = "Development"
+    }
+  }
+
+  group_by_attribute = "AwsAccountId"
+
+  name = "insight-per-account-id"
+
+  depends_on = [module.security_hub]
+}
 ```
 
 ## Overview Diagrams
@@ -184,12 +212,14 @@ module "security_hub" {
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0.0 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 4.47 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.9 |
 
 ### Providers
 
 | Name | Version |
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | >= 4.47 |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.9 |
 
 ### Modules
 
@@ -204,6 +234,7 @@ No modules.
 | [aws_securityhub_finding_aggregator.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_finding_aggregator) | resource |
 | [aws_securityhub_product_subscription.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_product_subscription) | resource |
 | [aws_securityhub_standards_subscription.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/securityhub_standards_subscription) | resource |
+| [time_sleep.wait_securityhub_enable](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 
 ### Inputs

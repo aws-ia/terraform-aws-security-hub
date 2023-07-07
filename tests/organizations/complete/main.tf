@@ -14,6 +14,8 @@ module "delegated_admin" {
 
   admin_account_id      = data.aws_caller_identity.current.account_id
   auto_enable_standards = "DEFAULT"
+
+  depends_on = [module.organizations_security_hub]
 }
 
 module "member_account" {
@@ -25,10 +27,12 @@ module "member_account" {
   }
 
   member_config = [{
-    account_id = "123456789012"
+    account_id = "0123456789012"
     email      = "required@example.com"
     invite     = false
   }]
+
+  depends_on = [module.delegated_admin]
 }
 
 module "organizations_security_hub" {
