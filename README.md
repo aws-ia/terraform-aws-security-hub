@@ -101,6 +101,8 @@ module "delegated_admin" {
 
   admin_account_id      = data.aws_caller_identity.current.account_id
   auto_enable_standards = "DEFAULT"
+
+  depends_on = [module.security_hub]
 }
 
 module "member_account" {
@@ -116,6 +118,8 @@ module "member_account" {
     email      = "required@example.com"
     invite     = false
   }]
+
+  depends_on = [module.security_hub]
 }
 
 module "security_hub" {
