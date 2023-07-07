@@ -1,2 +1,1 @@
 exclude:
-  - aws-s3-enable-bucket-logging # TFSec is showing a false positive regarding enabling bucket logging in the tests/ directory.
