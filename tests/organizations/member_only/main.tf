@@ -6,7 +6,8 @@ provider "aws" {
 }
 
 module "member_account" {
-  source = "../../../modules/organizations_member/"
+  source  = "aws-ia/security-hub/aws//modules/organizations_member"
+  version = "0.0.1"
 
   providers = {
     aws        = aws

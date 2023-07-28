@@ -3,14 +3,16 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 module "delegated_admin" {
-  source = "../../../modules/organizations_admin/"
+  source  = "aws-ia/security-hub/aws//modules/organizations_admin"
+  version = "0.0.1"
 
   admin_account_id      = data.aws_caller_identity.current.account_id
   auto_enable_standards = "DEFAULT"
 }
 
 module "organizations_security_hub" {
-  source = "../../../"
+  source  = "aws-ia/security-hub/aws"
+  version = "0.0.1"
 
   enable_default_standards  = false
   control_finding_generator = "STANDARD_CONTROL"
