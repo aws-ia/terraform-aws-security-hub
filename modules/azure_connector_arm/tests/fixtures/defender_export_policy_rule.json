@@ -168,6 +168,80 @@
         }
       },
       "deploymentScope": "subscription",
+      "existenceCondition": {
+        "allOf": [
+          {
+            "equals": "true",
+            "field": "Microsoft.Security/automations/isEnabled"
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/scopes[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/scopes[*]",
+              "where": {
+                "equals": "[subscription().id]",
+                "field": "Microsoft.Security/automations/scopes[*].scopePath"
+              }
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*]",
+              "where": {
+                "equals": "Alerts",
+                "field": "Microsoft.Security/automations/sources[*].eventSource"
+              }
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*].ruleSets[*]"
+            },
+            "equals": 0
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/actions[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/actions[*]",
+              "where": {
+                "allOf": [
+                  {
+                    "equals": "EventHub",
+                    "field": "Microsoft.Security/automations/actions[*].actionType"
+                  },
+                  {
+                    "equals": "[concat(parameters('eventHubNamespaceResourceId'), '/eventhubs/', parameters('eventHubName'))]",
+                    "field": "Microsoft.Security/automations/actions[*].EventHub.eventHubResourceId"
+                  },
+                  {
+                    "equals": "[parameters('sasPolicyName')]",
+                    "field": "Microsoft.Security/automations/actions[*].EventHub.sasPolicyName"
+                  }
+                ]
+              }
+            },
+            "equals": 1
+          }
+        ]
+      },
       "existenceScope": "resourceGroup",
       "name": "[parameters('automationName')]",
       "resourceGroupName": "[parameters('deploymentResourceGroupName')]",

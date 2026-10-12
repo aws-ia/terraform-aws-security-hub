@@ -14,8 +14,9 @@ provider "azapi" {
 }
 
 # Entra ID: application registration, service principal, federated credentials
-# and Microsoft Graph admin consent. Needs Global Administrator or Privileged
-# Role Administrator.
+# and Microsoft Graph admin consent. Needs Global Administrator, or Privileged
+# Role Administrator plus Application Administrator or Cloud Application
+# Administrator.
 module "azure_connector_entra" {
   source = "../../../modules/azure_connector_entra"
 

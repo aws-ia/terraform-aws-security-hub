@@ -14,6 +14,83 @@ locals {
         existenceScope    = "resourceGroup"
         resourceGroupName = "[parameters('deploymentResourceGroupName')]"
         deploymentScope   = "subscription"
+        # Without this, existence is judged by resource name alone, so an
+        # automation that is disabled, or that exports to a different Event Hub,
+        # counts as compliant and is never repaired.
+        existenceCondition = {
+          allOf = [
+            {
+              field  = "Microsoft.Security/automations/isEnabled"
+              equals = "true"
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/scopes[*]"
+              }
+              equals = 1
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/scopes[*]"
+                where = {
+                  field  = "Microsoft.Security/automations/scopes[*].scopePath"
+                  equals = "[subscription().id]"
+                }
+              }
+              equals = 1
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/sources[*]"
+              }
+              equals = 1
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/sources[*]"
+                where = {
+                  field  = "Microsoft.Security/automations/sources[*].eventSource"
+                  equals = "Alerts"
+                }
+              }
+              equals = 1
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/sources[*].ruleSets[*]"
+              }
+              equals = 0
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/actions[*]"
+              }
+              equals = 1
+            },
+            {
+              count = {
+                field = "Microsoft.Security/automations/actions[*]"
+                where = {
+                  allOf = [
+                    {
+                      field  = "Microsoft.Security/automations/actions[*].actionType"
+                      equals = "EventHub"
+                    },
+                    {
+                      field  = "Microsoft.Security/automations/actions[*].EventHub.eventHubResourceId"
+                      equals = "[concat(parameters('eventHubNamespaceResourceId'), '/eventhubs/', parameters('eventHubName'))]"
+                    },
+                    {
+                      field  = "Microsoft.Security/automations/actions[*].EventHub.sasPolicyName"
+                      equals = "[parameters('sasPolicyName')]"
+                    },
+                  ]
+                }
+              }
+              equals = 1
+            },
+          ]
+        }
         roleDefinitionIds = [local.contributor_role_definition_id]
         deployment = {
           # A literal, not "[parameters('deploymentLocation')]": Azure Policy's

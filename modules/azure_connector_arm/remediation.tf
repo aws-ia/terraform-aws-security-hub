@@ -94,6 +94,19 @@ resource "azapi_resource_action" "register_provider" {
   method      = "POST"
 }
 
+# Remediation tasks at the management group need Microsoft.PolicyInsights
+# registered on the management group itself; Azure rejects some of them with
+# ManagementGroupNotRegistered otherwise. Subscription registration does not
+# cover the management group.
+resource "azapi_resource_action" "register_policy_insights_mg" {
+  count = var.register_resource_providers && var.create_policy_remediations ? 1 : 0
+
+  type        = "Microsoft.Management/managementGroups@2021-04-01"
+  resource_id = local.mg_id
+  action      = "providers/Microsoft.PolicyInsights/register"
+  method      = "POST"
+}
+
 # Changes when any policy or the subscription list changes, so every
 # subscription is scanned again before the remediation tasks are replaced.
 resource "terraform_data" "compliance_scan_generation" {
@@ -165,6 +178,7 @@ resource "azurerm_management_group_policy_remediation" "existing_resources" {
   # the compliance results must exist before the task looks for resources.
   depends_on = [
     azapi_resource_action.register_provider,
+    azapi_resource_action.register_policy_insights_mg,
     azapi_resource_action.compliance_scan,
     azurerm_role_assignment.policy_contributor,
     azurerm_role_assignment.policy_eventhubs_data_owner,

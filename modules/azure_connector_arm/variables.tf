@@ -192,7 +192,7 @@ variable "tags" {
 # Provider registration and remediation
 ##################################################
 variable "register_resource_providers" {
-  description = "Register the Microsoft.Insights, Microsoft.EventHub and Microsoft.PolicyInsights resource providers (and Microsoft.Security when threats are enabled) in every subscription in `remediation_subscription_ids`. Registration is requested but not awaited."
+  description = "Register the Microsoft.Insights, Microsoft.EventHub and Microsoft.PolicyInsights resource providers (and Microsoft.Security when threats are enabled) in every subscription in `remediation_subscription_ids`, and Microsoft.PolicyInsights on the tenant root management group when `create_policy_remediations` is true. Registration is requested but not awaited."
   type        = bool
   default     = true
   nullable    = false

@@ -179,6 +179,11 @@ run "all_pipelines" {
   }
 
   assert {
+    condition     = azapi_resource_action.register_policy_insights_mg[0].resource_id == "/providers/Microsoft.Management/managementGroups/11111111-1111-1111-1111-111111111111" && azapi_resource_action.register_policy_insights_mg[0].action == "providers/Microsoft.PolicyInsights/register"
+    error_message = "Microsoft.PolicyInsights must be registered on the tenant root management group for the remediation tasks."
+  }
+
+  assert {
     condition     = length(azapi_resource.entra_diagnostics) == 1
     error_message = "CSPM needs the Entra ID diagnostic setting."
   }
@@ -246,8 +251,8 @@ run "cspm_only" {
   }
 
   assert {
-    condition     = length(azapi_resource_action.register_provider) == 0
-    error_message = "register_resource_providers = false must skip registration."
+    condition     = length(azapi_resource_action.register_provider) == 0 && length(azapi_resource_action.register_policy_insights_mg) == 0
+    error_message = "register_resource_providers = false must skip registration, including on the management group."
   }
 }
 
