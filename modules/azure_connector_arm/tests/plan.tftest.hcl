@@ -86,6 +86,11 @@ run "all_pipelines" {
   }
 
   assert {
+    condition     = azurerm_role_assignment.sp_contributor[0].scope == "/providers/Microsoft.Management/managementGroups/11111111-1111-1111-1111-111111111111" && azurerm_role_assignment.sp_contributor[0].role_definition_name == "Contributor"
+    error_message = "With Inspector enabled, the connector needs Contributor at the tenant root management group."
+  }
+
+  assert {
     condition     = azurerm_eventhub_namespace.acr["weu"].tags == tomap({ "AWSConfig-123456789012-us-east-1" = "activitylog:AWSConfig-123456789012-us-east-1" })
     error_message = "Regional namespaces carry discovery tags only for Inspector-enabled pairs."
   }
@@ -236,8 +241,8 @@ run "cspm_only" {
   }
 
   assert {
-    condition     = azurerm_role_assignment.sp_contributor.scope == "/providers/Microsoft.Management/managementGroups/11111111-1111-1111-1111-111111111111" && azurerm_role_assignment.sp_contributor.role_definition_name == "Contributor"
-    error_message = "The connector needs Contributor at the tenant root management group for every pipeline, including CSPM alone."
+    condition     = length(azurerm_role_assignment.sp_contributor) == 0
+    error_message = "CSPM alone must not grant the connector Contributor."
   }
 
   assert {

@@ -33,9 +33,11 @@ resource "azapi_resource" "sp_reader" {
   }
 }
 
-# Contributor at the tenant root management group, for every pipeline.
-# Inspector also uses it to scan resources across the tenant.
+# Inspector scans resources across the tenant. Created only when an account
+# enables Inspector.
 resource "azurerm_role_assignment" "sp_contributor" {
+  count = local.any_inspector ? 1 : 0
+
   scope                            = local.mg_id
   role_definition_name             = "Contributor"
   principal_id                     = var.service_principal_object_id
@@ -45,8 +47,10 @@ resource "azurerm_role_assignment" "sp_contributor" {
 
 # At the tenant root management group, so one assignment covers the shared
 # namespace and every regional namespace. It also lets the connector receive
-# from Event Hub namespaces this module does not manage, as does the
-# Contributor assignment above, which includes listKeys on every namespace.
+# from Event Hub namespaces this module does not manage. With Inspector enabled
+# the Contributor assignment above already includes listKeys on every
+# namespace; for a CSPM- or threats-only deployment this assignment is the
+# broader access.
 resource "azurerm_role_assignment" "sp_eventhubs_data_receiver" {
   scope                            = local.mg_id
   role_definition_name             = "Azure Event Hubs Data Receiver"

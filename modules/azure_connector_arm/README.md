@@ -4,12 +4,12 @@ Creates the Azure resources that stream an Azure tenant's data to AWS Security H
 
 | Pipeline | Enabled by | Resources |
 |----------|-----------|-----------|
-| Shared | always | Resource group, Event Hub namespace with an `activitylog` hub, one consumer group per account and Region, Reader at `/`, Contributor and Event Hubs Data Receiver at the root management group |
+| Shared | always | Resource group, Event Hub namespace with an `activitylog` hub, one consumer group per account and Region, Reader at `/`, Event Hubs Data Receiver at the root management group |
 | CSPM | `enable_cspm` | Activity Log diagnostic settings policy, Entra ID log diagnostic setting |
-| Inspector | `enable_inspector` | Activity Log policy, one Event Hub namespace and ACR diagnostic settings policy per entry in `azure_locations`, two policies that add a system-assigned identity to VMs, a VM Run Command custom role |
+| Inspector | `enable_inspector` | Activity Log policy, one Event Hub namespace and ACR diagnostic settings policy per entry in `azure_locations`, two policies that add a system-assigned identity to VMs, a VM Run Command custom role, Contributor at the root management group |
 | Threats | `enable_threats` | `defender-alerts` hub with a send-only rule, Defender for Cloud continuous export policy |
 
-The connector's Contributor and Event Hubs Data Receiver roles are at the tenant root management group, so one assignment of each covers every namespace this module creates. Both also reach every other Event Hub namespace in the tenant: Data Receiver can receive from any of them, and Contributor can list their keys.
+The connector's Event Hubs Data Receiver role is at the tenant root management group, so one assignment covers every namespace this module creates. It also lets the connector receive from every other Event Hub namespace in the tenant. When Inspector is enabled, the connector's Contributor role at the same scope already grants that reach; for a CSPM- or threats-only deployment, this assignment is the broader access.
 
 The namespaces carry discovery tags (`AWSConfig-<account>-<region>`, `AWSSecurityHub-<account>-<region>`) that the connector uses to find its Event Hub and consumer group.
 
