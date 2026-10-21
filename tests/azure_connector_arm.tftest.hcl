@@ -34,12 +34,34 @@ mock_provider "azurerm" {
   }
 }
 
-mock_provider "azapi" {
-  mock_data "azapi_client_config" {
-    defaults = {
-      tenant_id = "11111111-1111-1111-1111-111111111111"
-    }
+# The root module does not require Azure/azapi, so a mock_provider "azapi" here would resolve to
+# hashicorp/azapi. Every azapi data source and resource in the module is overridden instead, so no
+# azapi call reaches Azure. Add an override for any azapi object added to the module.
+override_data {
+  target = data.azapi_client_config.current
+  values = {
+    tenant_id = "11111111-1111-1111-1111-111111111111"
   }
+}
+
+override_resource {
+  target = azapi_resource.entra_diagnostics
+}
+
+override_resource {
+  target = azapi_resource.sp_reader
+}
+
+override_resource {
+  target = azapi_resource_action.register_provider
+}
+
+override_resource {
+  target = azapi_resource_action.register_policy_insights_mg
+}
+
+override_resource {
+  target = azapi_resource_action.compliance_scan
 }
 
 variables {
@@ -64,6 +86,10 @@ variables {
 }
 
 run "all_pipelines" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   assert {
@@ -195,6 +221,10 @@ run "all_pipelines" {
 }
 
 run "tags_applied" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -213,6 +243,10 @@ run "tags_applied" {
 }
 
 run "cspm_only" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -262,6 +296,10 @@ run "cspm_only" {
 }
 
 run "no_remediation" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -276,6 +314,10 @@ run "no_remediation" {
 }
 
 run "rejects_tenant_mismatch" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -286,6 +328,10 @@ run "rejects_tenant_mismatch" {
 }
 
 run "rejects_azapi_tenant_mismatch" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   override_data {
@@ -299,6 +345,10 @@ run "rejects_azapi_tenant_mismatch" {
 }
 
 run "rejects_token_collision" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -312,6 +362,10 @@ run "rejects_token_collision" {
 }
 
 run "rejects_inspector_without_locations" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -322,6 +376,10 @@ run "rejects_inspector_without_locations" {
 }
 
 run "rejects_non_canonical_location" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   command = plan
 
   variables {
@@ -332,6 +390,10 @@ run "rejects_non_canonical_location" {
 }
 
 run "policy_content" {
+  module {
+    source = "./modules/azure_connector_arm"
+  }
+
   # apply, against the mocked providers only, so the overridden namespace IDs are
   # known when the assignment parameters are checked.
   command = apply
@@ -384,42 +446,42 @@ run "policy_content" {
 
   # The policy rules and parameter definitions must match the fixtures exactly.
   assert {
-    condition     = jsondecode(local.activity_log_policy_rule_json) == jsondecode(file("${path.module}/tests/fixtures/activity_log_policy_rule.json"))
-    error_message = "The activity log policy rule does not match tests/fixtures/activity_log_policy_rule.json."
+    condition     = jsondecode(local.activity_log_policy_rule_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/activity_log_policy_rule.json"))
+    error_message = "The activity log policy rule does not match tests/fixtures/azure_connector_arm/activity_log_policy_rule.json."
   }
 
   assert {
-    condition     = jsondecode(local.activity_log_policy_parameters_json) == jsondecode(file("${path.module}/tests/fixtures/activity_log_policy_parameters.json"))
+    condition     = jsondecode(local.activity_log_policy_parameters_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/activity_log_policy_parameters.json"))
     error_message = "The activity log policy parameters do not match tests/fixtures/activity_log_policy_parameters.json."
   }
 
   assert {
-    condition     = jsondecode(local.acr_diagnostics_policy_rule_json) == jsondecode(file("${path.module}/tests/fixtures/acr_diagnostics_policy_rule.json"))
-    error_message = "The ACR diagnostics policy rule does not match tests/fixtures/acr_diagnostics_policy_rule.json."
+    condition     = jsondecode(local.acr_diagnostics_policy_rule_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/acr_diagnostics_policy_rule.json"))
+    error_message = "The ACR diagnostics policy rule does not match tests/fixtures/azure_connector_arm/acr_diagnostics_policy_rule.json."
   }
 
   assert {
-    condition     = jsondecode(local.acr_diagnostics_policy_parameters_json) == jsondecode(file("${path.module}/tests/fixtures/acr_diagnostics_policy_parameters.json"))
+    condition     = jsondecode(local.acr_diagnostics_policy_parameters_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/acr_diagnostics_policy_parameters.json"))
     error_message = "The ACR diagnostics policy parameters do not match tests/fixtures/acr_diagnostics_policy_parameters.json."
   }
 
   assert {
-    condition     = jsondecode(local.vm_identity_none_policy_rule_json) == jsondecode(file("${path.module}/tests/fixtures/vm_identity_none_policy_rule.json"))
-    error_message = "The VM identity (none) policy rule does not match tests/fixtures/vm_identity_none_policy_rule.json."
+    condition     = jsondecode(local.vm_identity_none_policy_rule_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/vm_identity_none_policy_rule.json"))
+    error_message = "The VM identity (none) policy rule does not match tests/fixtures/azure_connector_arm/vm_identity_none_policy_rule.json."
   }
 
   assert {
-    condition     = jsondecode(local.vm_identity_ua_policy_rule_json) == jsondecode(file("${path.module}/tests/fixtures/vm_identity_ua_policy_rule.json"))
-    error_message = "The VM identity (user-assigned) policy rule does not match tests/fixtures/vm_identity_ua_policy_rule.json."
+    condition     = jsondecode(local.vm_identity_ua_policy_rule_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/vm_identity_ua_policy_rule.json"))
+    error_message = "The VM identity (user-assigned) policy rule does not match tests/fixtures/azure_connector_arm/vm_identity_ua_policy_rule.json."
   }
 
   assert {
-    condition     = jsondecode(local.defender_export_policy_rule_json) == jsondecode(file("${path.module}/tests/fixtures/defender_export_policy_rule.json"))
-    error_message = "The Defender export policy rule does not match tests/fixtures/defender_export_policy_rule.json."
+    condition     = jsondecode(local.defender_export_policy_rule_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/defender_export_policy_rule.json"))
+    error_message = "The Defender export policy rule does not match tests/fixtures/azure_connector_arm/defender_export_policy_rule.json."
   }
 
   assert {
-    condition     = jsondecode(local.defender_export_policy_parameters_json) == jsondecode(file("${path.module}/tests/fixtures/defender_export_policy_parameters.json"))
+    condition     = jsondecode(local.defender_export_policy_parameters_json) == jsondecode(file("./tests/fixtures/azure_connector_arm/defender_export_policy_parameters.json"))
     error_message = "The Defender export policy parameters do not match tests/fixtures/defender_export_policy_parameters.json."
   }
 

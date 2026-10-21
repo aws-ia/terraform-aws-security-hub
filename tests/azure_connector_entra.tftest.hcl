@@ -48,6 +48,10 @@ variables {
 }
 
 run "all_pipelines" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   assert {
@@ -94,6 +98,10 @@ run "all_pipelines" {
 }
 
 run "config_only_account" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {
@@ -115,6 +123,10 @@ run "config_only_account" {
 }
 
 run "one_account_two_regions" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {
@@ -152,6 +164,10 @@ run "one_account_two_regions" {
 }
 
 run "rejects_empty_owners" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {
@@ -162,6 +178,10 @@ run "rejects_empty_owners" {
 }
 
 run "rejects_invalid_account_id" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {
@@ -178,6 +198,10 @@ run "rejects_invalid_account_id" {
 }
 
 run "rejects_conflicting_issuers" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {
@@ -199,6 +223,10 @@ run "rejects_conflicting_issuers" {
 }
 
 run "rejects_more_than_twenty_credentials" {
+  module {
+    source = "./modules/azure_connector_entra"
+  }
+
   command = plan
 
   variables {

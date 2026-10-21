@@ -201,7 +201,7 @@ resource "aws_securityhub_insight" "this" {
 
 ### Azure connector
 
-Two submodules prepare a Microsoft Azure tenant for the AWS Security Hub Azure connector. [`azure_connector_entra`](./modules/azure\_connector\_entra) creates the Entra ID application, its federated identity credentials and Microsoft Graph consent. [`azure_connector_arm`](./modules/azure\_connector\_arm) creates the Event Hubs, Azure Policy assignments and role assignments. Apply them together, or separately when a directory administrator and an Azure administrator are different people. See [tests/azure\_connector](./tests/azure\_connector) for examples.
+Two submodules prepare a Microsoft Azure tenant for the AWS Security Hub Azure connector. [`azure_connector_entra`](./modules/azure\_connector\_entra) creates the Entra ID application, its federated identity credentials and Microsoft Graph consent. [`azure_connector_arm`](./modules/azure\_connector\_arm) creates the Event Hubs, Azure Policy assignments and role assignments. Apply them together, or separately when a directory administrator and an Azure administrator are different people. See [examples/azure\_connector](./examples/azure\_connector) for examples.
 
 ```hcl
 locals {
