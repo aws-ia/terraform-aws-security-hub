@@ -7,6 +7,7 @@ Terraform module that creates AWS Security Hub resources.
     - [Standalone](#standalone)
     - [Organizations](#organizations)
     - [Azure connector](#azure-connector)
+  - [Modules](#modules)
   - [Overview Diagrams](#overview-diagrams)
     - [Standalone](#standalone-1)
     - [Organizations](#organizations-1)
@@ -231,6 +232,15 @@ module "azure_connector_arm" {
   application_client_id       = module.azure_connector_entra.application_client_id
 }
 ```
+
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| [organizations\_admin](./modules/organizations\_admin) | Configures the Security Hub delegated administrator account for an AWS Organization. |
+| [organizations\_member](./modules/organizations\_member) | Configures Security Hub in an AWS Organization member account. |
+| [azure\_connector\_entra](./modules/azure\_connector\_entra) | Creates the Entra ID application, its federated identity credentials and Microsoft Graph consent for the Security Hub Azure connector. |
+| [azure\_connector\_arm](./modules/azure\_connector\_arm) | Creates the Event Hubs, Azure Policy assignments and role assignments for the Security Hub Azure connector. |
 
 ## Overview Diagrams
 
