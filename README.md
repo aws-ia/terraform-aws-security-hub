@@ -6,6 +6,8 @@ Terraform module that creates AWS Security Hub resources.
   - [Usage](#usage)
     - [Standalone](#standalone)
     - [Organizations](#organizations)
+    - [Azure connector](#azure-connector)
+  - [Modules](#modules)
   - [Overview Diagrams](#overview-diagrams)
     - [Standalone](#standalone-1)
     - [Organizations](#organizations-1)
@@ -197,6 +199,48 @@ resource "aws_securityhub_insight" "this" {
   depends_on = [module.security_hub]
 }
 ```
+
+### Azure connector
+
+Two submodules prepare a Microsoft Azure tenant for the AWS Security Hub Azure connector. [`azure_connector_entra`](./modules/azure\_connector\_entra) creates the Entra ID application, its federated identity credentials and Microsoft Graph consent. [`azure_connector_arm`](./modules/azure\_connector\_arm) creates the Event Hubs, Azure Policy assignments and role assignments. Apply them together, or separately when a directory administrator and an Azure administrator are different people. See [examples/azure\_connector](./examples/azure\_connector) for examples.
+
+```hcl
+locals {
+  onboarded_accounts = [{
+    aws_account_id = "123456789012"
+    aws_region     = "us-east-1"
+    issuer_url     = "https://00000000-0000-0000-0000-000000000000.tokens.sts.global.api.aws"
+  }]
+}
+
+module "azure_connector_entra" {
+  source = "aws-ia/security-hub/aws//modules/azure_connector_entra"
+
+  lead_aws_account_id = "123456789012"
+  onboarded_accounts  = local.onboarded_accounts
+  owner_object_ids    = ["00000000-0000-0000-0000-000000000000"]
+}
+
+module "azure_connector_arm" {
+  source = "aws-ia/security-hub/aws//modules/azure_connector_arm"
+
+  lead_aws_account_id         = "123456789012"
+  onboarded_accounts          = local.onboarded_accounts
+  azure_locations             = ["eastus"]
+  tenant_id                   = module.azure_connector_entra.tenant_id
+  service_principal_object_id = module.azure_connector_entra.service_principal_object_id
+  application_client_id       = module.azure_connector_entra.application_client_id
+}
+```
+
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| [organizations\_admin](./modules/organizations\_admin) | Configures the Security Hub delegated administrator account for an AWS Organization. |
+| [organizations\_member](./modules/organizations\_member) | Configures Security Hub in an AWS Organization member account. |
+| [azure\_connector\_entra](./modules/azure\_connector\_entra) | Creates the Entra ID application, its federated identity credentials and Microsoft Graph consent for the Security Hub Azure connector. |
+| [azure\_connector\_arm](./modules/azure\_connector\_arm) | Creates the Event Hubs, Azure Policy assignments and role assignments for the Security Hub Azure connector. |
 
 ## Overview Diagrams
 

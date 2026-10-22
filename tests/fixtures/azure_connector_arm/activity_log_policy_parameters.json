@@ -1,0 +1,23 @@
+{
+  "eventHubAuthorizationRuleId": {
+    "metadata": {
+      "assignPermissions": true,
+      "displayName": "Event Hub Authorization Rule Id",
+      "strongType": "Microsoft.EventHub/Namespaces/AuthorizationRules"
+    },
+    "type": "String"
+  },
+  "eventHubName": {
+    "metadata": {
+      "displayName": "Event Hub Name"
+    },
+    "type": "String"
+  },
+  "profileName": {
+    "defaultValue": "setByPolicy-EventHub-Administrative",
+    "metadata": {
+      "displayName": "Profile name"
+    },
+    "type": "String"
+  }
+}

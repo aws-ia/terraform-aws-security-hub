@@ -1,0 +1,107 @@
+{
+  "if": {
+    "allOf": [
+      {
+        "equals": "Microsoft.ContainerRegistry/registries",
+        "field": "type"
+      },
+      {
+        "equals": "[parameters('eventHubLocation')]",
+        "field": "location"
+      }
+    ]
+  },
+  "then": {
+    "details": {
+      "deployment": {
+        "properties": {
+          "mode": "incremental",
+          "parameters": {
+            "eventHubAuthorizationRuleId": {
+              "value": "[parameters('eventHubAuthorizationRuleId')]"
+            },
+            "eventHubName": {
+              "value": "[parameters('eventHubName')]"
+            },
+            "profileName": {
+              "value": "[parameters('profileName')]"
+            },
+            "resourceName": {
+              "value": "[field('name')]"
+            }
+          },
+          "template": {
+            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "eventHubAuthorizationRuleId": {
+                "type": "string"
+              },
+              "eventHubName": {
+                "type": "string"
+              },
+              "profileName": {
+                "type": "string"
+              },
+              "resourceName": {
+                "type": "string"
+              }
+            },
+            "resources": [
+              {
+                "apiVersion": "2021-05-01-preview",
+                "name": "[concat(parameters('resourceName'), '/Microsoft.Insights/', parameters('profileName'))]",
+                "properties": {
+                  "eventHubAuthorizationRuleId": "[parameters('eventHubAuthorizationRuleId')]",
+                  "eventHubName": "[parameters('eventHubName')]",
+                  "logs": [
+                    {
+                      "category": "ContainerRegistryRepositoryEvents",
+                      "enabled": true
+                    }
+                  ]
+                },
+                "type": "Microsoft.ContainerRegistry/registries/providers/diagnosticSettings"
+              }
+            ]
+          }
+        }
+      },
+      "existenceCondition": {
+        "allOf": [
+          {
+            "equals": "[parameters('eventHubAuthorizationRuleId')]",
+            "field": "Microsoft.Insights/diagnosticSettings/eventHubAuthorizationRuleId"
+          },
+          {
+            "equals": "[parameters('eventHubName')]",
+            "field": "Microsoft.Insights/diagnosticSettings/eventHubName"
+          },
+          {
+            "count": {
+              "field": "Microsoft.Insights/diagnosticSettings/logs[*]",
+              "where": {
+                "allOf": [
+                  {
+                    "equals": "ContainerRegistryRepositoryEvents",
+                    "field": "Microsoft.Insights/diagnosticSettings/logs[*].category"
+                  },
+                  {
+                    "equals": "true",
+                    "field": "Microsoft.Insights/diagnosticSettings/logs[*].enabled"
+                  }
+                ]
+              }
+            },
+            "equals": 1
+          }
+        ]
+      },
+      "roleDefinitionIds": [
+        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+      ],
+      "type": "Microsoft.Insights/diagnosticSettings"
+    },
+    "effect": "DeployIfNotExists"
+  }
+}

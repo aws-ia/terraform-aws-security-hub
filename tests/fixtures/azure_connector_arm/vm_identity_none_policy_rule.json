@@ -1,0 +1,37 @@
+{
+  "if": {
+    "allOf": [
+      {
+        "equals": "Microsoft.Compute/virtualMachines",
+        "field": "type"
+      },
+      {
+        "anyOf": [
+          {
+            "exists": "false",
+            "field": "identity.type"
+          },
+          {
+            "equals": "None",
+            "field": "identity.type"
+          }
+        ]
+      }
+    ]
+  },
+  "then": {
+    "details": {
+      "operations": [
+        {
+          "field": "identity.type",
+          "operation": "addOrReplace",
+          "value": "SystemAssigned"
+        }
+      ],
+      "roleDefinitionIds": [
+        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+      ]
+    },
+    "effect": "modify"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "eventHubAuthorizationRuleId": {
+    "metadata": {
+      "assignPermissions": true,
+      "displayName": "Event Hub Authorization Rule Id",
+      "strongType": "Microsoft.EventHub/Namespaces/AuthorizationRules"
+    },
+    "type": "String"
+  },
+  "eventHubLocation": {
+    "defaultValue": "eastus",
+    "metadata": {
+      "description": "Only ACRs in this region are evaluated; pairs them to a same-region Event Hub.",
+      "displayName": "Event Hub Location",
+      "strongType": "location"
+    },
+    "type": "String"
+  },
+  "eventHubName": {
+    "metadata": {
+      "displayName": "Event Hub Name"
+    },
+    "type": "String"
+  },
+  "profileName": {
+    "defaultValue": "setByPolicy-EventHub-ContainerRegistryRepositoryEvents",
+    "metadata": {
+      "displayName": "Profile name"
+    },
+    "type": "String"
+  }
+}

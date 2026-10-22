@@ -1,0 +1,255 @@
+{
+  "if": {
+    "equals": "Microsoft.Resources/subscriptions",
+    "field": "type"
+  },
+  "then": {
+    "details": {
+      "deployment": {
+        "location": "eastus",
+        "properties": {
+          "expressionEvaluationOptions": {
+            "scope": "outer"
+          },
+          "mode": "incremental",
+          "parameters": {
+            "automationName": {
+              "value": "[parameters('automationName')]"
+            },
+            "deploymentLocation": {
+              "value": "[parameters('deploymentLocation')]"
+            },
+            "deploymentResourceGroupName": {
+              "value": "[parameters('deploymentResourceGroupName')]"
+            },
+            "eventHubAuthorizationRuleId": {
+              "value": "[parameters('eventHubAuthorizationRuleId')]"
+            },
+            "eventHubName": {
+              "value": "[parameters('eventHubName')]"
+            },
+            "eventHubNamespaceResourceId": {
+              "value": "[parameters('eventHubNamespaceResourceId')]"
+            },
+            "sasPolicyName": {
+              "value": "[parameters('sasPolicyName')]"
+            }
+          },
+          "template": {
+            "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "automationName": {
+                "type": "string"
+              },
+              "deploymentLocation": {
+                "type": "string"
+              },
+              "deploymentResourceGroupName": {
+                "type": "string"
+              },
+              "eventHubAuthorizationRuleId": {
+                "type": "string"
+              },
+              "eventHubName": {
+                "type": "string"
+              },
+              "eventHubNamespaceResourceId": {
+                "type": "string"
+              },
+              "sasPolicyName": {
+                "type": "string"
+              }
+            },
+            "resources": [
+              {
+                "apiVersion": "2021-04-01",
+                "location": "[parameters('deploymentLocation')]",
+                "name": "[parameters('deploymentResourceGroupName')]",
+                "properties": {},
+                "type": "Microsoft.Resources/resourceGroups"
+              },
+              {
+                "apiVersion": "2021-04-01",
+                "dependsOn": [
+                  "[resourceId('Microsoft.Resources/resourceGroups', parameters('deploymentResourceGroupName'))]"
+                ],
+                "name": "deploy-securityhub-defender-automation",
+                "properties": {
+                  "expressionEvaluationOptions": {
+                    "scope": "inner"
+                  },
+                  "mode": "Incremental",
+                  "parameters": {
+                    "automationName": {
+                      "value": "[parameters('automationName')]"
+                    },
+                    "deploymentLocation": {
+                      "value": "[parameters('deploymentLocation')]"
+                    },
+                    "eventHubAuthorizationRuleId": {
+                      "value": "[parameters('eventHubAuthorizationRuleId')]"
+                    },
+                    "eventHubName": {
+                      "value": "[parameters('eventHubName')]"
+                    },
+                    "eventHubNamespaceResourceId": {
+                      "value": "[parameters('eventHubNamespaceResourceId')]"
+                    },
+                    "sasPolicyName": {
+                      "value": "[parameters('sasPolicyName')]"
+                    }
+                  },
+                  "template": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                      "automationName": {
+                        "type": "string"
+                      },
+                      "deploymentLocation": {
+                        "type": "string"
+                      },
+                      "eventHubAuthorizationRuleId": {
+                        "type": "string"
+                      },
+                      "eventHubName": {
+                        "type": "string"
+                      },
+                      "eventHubNamespaceResourceId": {
+                        "type": "string"
+                      },
+                      "sasPolicyName": {
+                        "type": "string"
+                      }
+                    },
+                    "resources": [
+                      {
+                        "apiVersion": "2019-01-01-preview",
+                        "location": "[parameters('deploymentLocation')]",
+                        "name": "[parameters('automationName')]",
+                        "properties": {
+                          "actions": [
+                            {
+                              "actionType": "EventHub",
+                              "connectionString": "[listKeys(parameters('eventHubAuthorizationRuleId'), '2021-11-01').primaryConnectionString]",
+                              "eventHubResourceId": "[variables('eventHubResourceId')]",
+                              "sasPolicyName": "[parameters('sasPolicyName')]"
+                            }
+                          ],
+                          "description": "Exports Microsoft Defender for Cloud alerts to the SecurityHub MultiCloud Event Hub.",
+                          "isEnabled": true,
+                          "scopes": [
+                            {
+                              "description": "Subscription scope",
+                              "scopePath": "[subscription().id]"
+                            }
+                          ],
+                          "sources": [
+                            {
+                              "eventSource": "Alerts",
+                              "ruleSets": []
+                            }
+                          ]
+                        },
+                        "type": "Microsoft.Security/automations"
+                      }
+                    ],
+                    "variables": {
+                      "eventHubResourceId": "[concat(parameters('eventHubNamespaceResourceId'), '/eventhubs/', parameters('eventHubName'))]"
+                    }
+                  }
+                },
+                "resourceGroup": "[parameters('deploymentResourceGroupName')]",
+                "type": "Microsoft.Resources/deployments"
+              }
+            ]
+          }
+        }
+      },
+      "deploymentScope": "subscription",
+      "existenceCondition": {
+        "allOf": [
+          {
+            "equals": "true",
+            "field": "Microsoft.Security/automations/isEnabled"
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/scopes[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/scopes[*]",
+              "where": {
+                "equals": "[subscription().id]",
+                "field": "Microsoft.Security/automations/scopes[*].scopePath"
+              }
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*]",
+              "where": {
+                "equals": "Alerts",
+                "field": "Microsoft.Security/automations/sources[*].eventSource"
+              }
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/sources[*].ruleSets[*]"
+            },
+            "equals": 0
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/actions[*]"
+            },
+            "equals": 1
+          },
+          {
+            "count": {
+              "field": "Microsoft.Security/automations/actions[*]",
+              "where": {
+                "allOf": [
+                  {
+                    "equals": "EventHub",
+                    "field": "Microsoft.Security/automations/actions[*].actionType"
+                  },
+                  {
+                    "equals": "[concat(parameters('eventHubNamespaceResourceId'), '/eventhubs/', parameters('eventHubName'))]",
+                    "field": "Microsoft.Security/automations/actions[*].EventHub.eventHubResourceId"
+                  },
+                  {
+                    "equals": "[parameters('sasPolicyName')]",
+                    "field": "Microsoft.Security/automations/actions[*].EventHub.sasPolicyName"
+                  }
+                ]
+              }
+            },
+            "equals": 1
+          }
+        ]
+      },
+      "existenceScope": "resourceGroup",
+      "name": "[parameters('automationName')]",
+      "resourceGroupName": "[parameters('deploymentResourceGroupName')]",
+      "roleDefinitionIds": [
+        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+      ],
+      "type": "Microsoft.Security/automations"
+    },
+    "effect": "deployIfNotExists"
+  }
+}

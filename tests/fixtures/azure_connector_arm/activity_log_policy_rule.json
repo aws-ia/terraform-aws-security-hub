@@ -1,0 +1,97 @@
+{
+  "if": {
+    "equals": "Microsoft.Resources/subscriptions",
+    "field": "type"
+  },
+  "then": {
+    "details": {
+      "deployment": {
+        "location": "eastus",
+        "properties": {
+          "mode": "incremental",
+          "parameters": {
+            "eventHubAuthorizationRuleId": {
+              "value": "[parameters('eventHubAuthorizationRuleId')]"
+            },
+            "eventHubName": {
+              "value": "[parameters('eventHubName')]"
+            },
+            "profileName": {
+              "value": "[parameters('profileName')]"
+            }
+          },
+          "template": {
+            "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "eventHubAuthorizationRuleId": {
+                "type": "string"
+              },
+              "eventHubName": {
+                "type": "string"
+              },
+              "profileName": {
+                "type": "string"
+              }
+            },
+            "resources": [
+              {
+                "apiVersion": "2021-05-01-preview",
+                "name": "[parameters('profileName')]",
+                "properties": {
+                  "eventHubAuthorizationRuleId": "[parameters('eventHubAuthorizationRuleId')]",
+                  "eventHubName": "[parameters('eventHubName')]",
+                  "logs": [
+                    {
+                      "category": "Administrative",
+                      "enabled": true
+                    }
+                  ]
+                },
+                "type": "Microsoft.Insights/diagnosticSettings"
+              }
+            ]
+          }
+        }
+      },
+      "deploymentScope": "subscription",
+      "existenceCondition": {
+        "allOf": [
+          {
+            "equals": "[parameters('eventHubAuthorizationRuleId')]",
+            "field": "Microsoft.Insights/diagnosticSettings/eventHubAuthorizationRuleId"
+          },
+          {
+            "equals": "[parameters('eventHubName')]",
+            "field": "Microsoft.Insights/diagnosticSettings/eventHubName"
+          },
+          {
+            "count": {
+              "field": "Microsoft.Insights/diagnosticSettings/logs[*]",
+              "where": {
+                "allOf": [
+                  {
+                    "equals": "Administrative",
+                    "field": "Microsoft.Insights/diagnosticSettings/logs[*].category"
+                  },
+                  {
+                    "equals": "true",
+                    "field": "Microsoft.Insights/diagnosticSettings/logs[*].enabled"
+                  }
+                ]
+              }
+            },
+            "equals": 1
+          }
+        ]
+      },
+      "existenceScope": "subscription",
+      "name": "[parameters('profileName')]",
+      "roleDefinitionIds": [
+        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+      ],
+      "type": "Microsoft.Insights/diagnosticSettings"
+    },
+    "effect": "DeployIfNotExists"
+  }
+}

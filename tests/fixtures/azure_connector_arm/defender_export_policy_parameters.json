@@ -1,0 +1,51 @@
+{
+  "automationName": {
+    "defaultValue": "securityhub-defender-alerts-export",
+    "metadata": {
+      "displayName": "Defender automation resource name"
+    },
+    "type": "String"
+  },
+  "deploymentLocation": {
+    "defaultValue": "eastus",
+    "metadata": {
+      "displayName": "Target location"
+    },
+    "type": "String"
+  },
+  "deploymentResourceGroupName": {
+    "defaultValue": "securityhub-defender-export-rg",
+    "metadata": {
+      "displayName": "Target resource group name"
+    },
+    "type": "String"
+  },
+  "eventHubAuthorizationRuleId": {
+    "metadata": {
+      "assignPermissions": true,
+      "displayName": "Event Hub authorization rule resource ID",
+      "strongType": "Microsoft.EventHub/Namespaces/EventHubs/AuthorizationRules"
+    },
+    "type": "String"
+  },
+  "eventHubName": {
+    "defaultValue": "defender-alerts",
+    "metadata": {
+      "displayName": "Event Hub name"
+    },
+    "type": "String"
+  },
+  "eventHubNamespaceResourceId": {
+    "metadata": {
+      "displayName": "Event Hub namespace resource ID"
+    },
+    "type": "String"
+  },
+  "sasPolicyName": {
+    "defaultValue": "DefenderExportSend",
+    "metadata": {
+      "displayName": "Event Hub SAS policy name"
+    },
+    "type": "String"
+  }
+}
