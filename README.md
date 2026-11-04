@@ -7,6 +7,7 @@ Terraform module that creates AWS Security Hub resources.
     - [Standalone](#standalone)
     - [Organizations](#organizations)
     - [Azure connector](#azure-connector)
+    - [GCP connector](#gcp-connector)
   - [Modules](#modules)
   - [Overview Diagrams](#overview-diagrams)
     - [Standalone](#standalone-1)
@@ -233,6 +234,26 @@ module "azure_connector_arm" {
 }
 ```
 
+### GCP connector
+
+The [`gcp_connector`](./modules/gcp\_connector) submodule prepares a Google Cloud organization for the AWS Security Hub GCP connector. It creates the workload identity pools and providers, the connector service accounts and their organization reader roles, the organization log sinks and Cloud Asset Inventory feeds with their Pub/Sub topics and subscriptions, the organization audit configuration, and the Amazon Inspector additions. See [examples/gcp\_connector](./examples/gcp\_connector) for an example.
+
+```hcl
+module "gcp_connector" {
+  source = "aws-ia/security-hub/aws//modules/gcp_connector"
+
+  organization_id = "000000000000"
+  project_id      = "my-management-project"
+
+  onboarded_accounts = [{
+    aws_account_id   = "123456789012"
+    aws_region       = "us-east-1"
+    issuer_url       = "https://00000000-0000-0000-0000-000000000000.tokens.sts.global.api.aws"
+    enable_inspector = true
+  }]
+}
+```
+
 ## Modules
 
 | Module | Description |
@@ -241,6 +262,7 @@ module "azure_connector_arm" {
 | [organizations\_member](./modules/organizations\_member) | Configures Security Hub in an AWS Organization member account. |
 | [azure\_connector\_entra](./modules/azure\_connector\_entra) | Creates the Entra ID application, its federated identity credentials and Microsoft Graph consent for the Security Hub Azure connector. |
 | [azure\_connector\_arm](./modules/azure\_connector\_arm) | Creates the Event Hubs, Azure Policy assignments and role assignments for the Security Hub Azure connector. |
+| [gcp\_connector](./modules/gcp\_connector) | Creates the workload identity federation, service accounts, log sinks, Cloud Asset Inventory feeds, Pub/Sub subscriptions and audit configuration for the Security Hub GCP connector. |
 
 ## Overview Diagrams
 
