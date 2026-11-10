@@ -19,9 +19,10 @@ output "accounts" {
 output "custom_roles" {
   description = "Names of the custom roles that the module creates, or null for a role that it does not create."
   value = {
-    function_source = try(google_organization_iam_custom_role.function_source[0].name, null)
-    vm_deployer     = try(google_organization_iam_custom_role.vm_deployer[0].name, null)
-    vm_orchestrator = try(google_organization_iam_custom_role.vm_orchestrator[0].name, null)
+    function_source         = try(google_organization_iam_custom_role.function_source[0].name, null)
+    vm_deployer             = try(google_organization_iam_custom_role.vm_deployer[0].name, null)
+    vm_orchestrator         = try(google_organization_iam_custom_role.vm_orchestrator[0].name, null)
+    vm_project_orchestrator = try(google_organization_iam_custom_role.vm_project_orchestrator[0].name, null)
   }
 }
 

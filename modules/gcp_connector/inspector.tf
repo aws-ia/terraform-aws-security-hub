@@ -22,20 +22,16 @@ locals {
 
   vm_targets = local.any_inspector_vm ? toset(var.target_project_ids) : toset([])
 
-  inspector_function_source_role = "inspectorFunctionSourceReader"
-  inspector_vm_orchestrator_role = "OSPolicySSMOrchestrator"
-  inspector_vm_deployer_role     = "OSPolicySSMTargetDeployer"
+  inspector_function_source_role         = "inspectorFunctionSourceReader"
+  inspector_vm_orchestrator_role         = "OSPolicySSMOrchestrator"
+  inspector_vm_project_orchestrator_role = "OSPolicySSMProjectOrchestrator"
+  inspector_vm_deployer_role             = "OSPolicySSMTargetDeployer"
 
   inspector_function_source_permissions = ["cloudfunctions.functions.sourceCodeGet"]
 
-  # Granted at the organization. For an ORGANIZATION-scope connector, AWS
-  # Systems Manager creates the scanner's OS policy orchestrator under the
-  # organization; for a connector with project targets it creates it in the
-  # management project. Both need osconfig.policyOrchestrators.* on the
-  # parent. The orchestrator then writes the OS policy assignments through the
-  # OS Config rollout service agent, not as this identity. Everything else
-  # here is read-only.
-  inspector_vm_orchestrator_permissions = [
+  # Read-only VM, inventory, OS policy, asset, project and service usage
+  # permissions, always granted at the organization.
+  inspector_vm_read_permissions = [
     "cloudasset.assets.searchAllResources",
     "compute.instances.get",
     "compute.instances.list",
@@ -50,15 +46,34 @@ locals {
     "osconfig.osPolicyAssignmentReports.list",
     "osconfig.osPolicyAssignments.get",
     "osconfig.osPolicyAssignments.list",
+    "resourcemanager.projects.get",
+    "serviceusage.services.get",
+    "serviceusage.services.list",
+  ]
+
+  # The orchestrator permissions, granted on the parent where AWS Systems
+  # Manager creates the scanner's OS policy orchestrator
+  # (var.vm_orchestrator_parent). For an ORGANIZATION-scope connector with no
+  # project targets, Systems Manager creates it under the organization; for a
+  # connector with project targets, in the management (workload identity pool)
+  # project. The orchestrator then writes the OS policy assignments through
+  # the OS Config rollout service agent, not as this identity.
+  inspector_vm_orchestrator_write_permissions = [
     "osconfig.policyOrchestrators.create",
     "osconfig.policyOrchestrators.delete",
     "osconfig.policyOrchestrators.get",
     "osconfig.policyOrchestrators.list",
     "osconfig.policyOrchestrators.update",
-    "resourcemanager.projects.get",
-    "serviceusage.services.get",
-    "serviceusage.services.list",
   ]
+
+  orchestrator_at_organization = var.vm_orchestrator_parent == "organization"
+
+  # The organization role: the read-only permissions, plus the orchestrator
+  # permissions when the orchestrator parent is the organization.
+  inspector_vm_orchestrator_permissions = concat(
+    local.inspector_vm_read_permissions,
+    local.orchestrator_at_organization ? local.inspector_vm_orchestrator_write_permissions : [],
+  )
 
   # Granted only in each target project. These permissions change VMs:
   # metadata (including startup scripts), labels, OS policy assignments, and
@@ -145,9 +160,25 @@ resource "google_organization_iam_custom_role" "vm_orchestrator" {
   org_id      = local.org
   role_id     = local.inspector_vm_orchestrator_role
   title       = "OS Policy SSM Orchestrator"
-  description = "Manage OS policy orchestrators and read VM, inventory and OS policy state for Amazon Inspector VM scanning."
+  description = local.orchestrator_at_organization ? "Manage OS policy orchestrators and read VM, inventory and OS policy state for Amazon Inspector VM scanning." : "Read VM, inventory and OS policy state for Amazon Inspector VM scanning."
   stage       = "GA"
   permissions = local.inspector_vm_orchestrator_permissions
+
+  depends_on = [terraform_data.preflight]
+}
+
+# With vm_orchestrator_parent = "project", the orchestrator permissions are
+# granted only in the management project. Defined at the organization, like
+# the target deployer role.
+resource "google_organization_iam_custom_role" "vm_project_orchestrator" {
+  count = local.any_inspector_vm && !local.orchestrator_at_organization ? 1 : 0
+
+  org_id      = local.org
+  role_id     = local.inspector_vm_project_orchestrator_role
+  title       = "OS Policy SSM Project Orchestrator"
+  description = "Manage the Amazon Inspector VM scanner's OS policy orchestrator in the management project."
+  stage       = "GA"
+  permissions = local.inspector_vm_orchestrator_write_permissions
 
   depends_on = [terraform_data.preflight]
 }
@@ -181,6 +212,14 @@ resource "google_organization_iam_member" "vm_orchestrator" {
   org_id = local.org
   role   = google_organization_iam_custom_role.vm_orchestrator[0].name
   member = "serviceAccount:${google_service_account.connector[each.key].email}"
+}
+
+resource "google_project_iam_member" "vm_project_orchestrator" {
+  for_each = local.orchestrator_at_organization ? {} : local.inspector_vm_accounts
+
+  project = local.project
+  role    = google_organization_iam_custom_role.vm_project_orchestrator[0].name
+  member  = "serviceAccount:${google_service_account.connector[each.key].email}"
 }
 
 resource "google_project_iam_member" "vm_deployer" {

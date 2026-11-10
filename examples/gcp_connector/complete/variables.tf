@@ -37,3 +37,9 @@ variable "target_project_ids" {
   type        = list(string)
   default     = []
 }
+
+variable "vm_orchestrator_parent" {
+  description = "Where the connector gets the OS policy orchestrator permissions: organization (any connector scope) or project (project-targeted connectors only). See the module documentation."
+  type        = string
+  default     = "organization"
+}

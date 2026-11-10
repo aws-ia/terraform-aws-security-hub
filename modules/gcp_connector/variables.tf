@@ -132,3 +132,15 @@ variable "target_project_ids" {
     error_message = "target_project_ids is nonempty but no onboarded account sets enable_inspector = true with enable_inspector_vm = true. VM scanning requires Amazon Inspector."
   }
 }
+
+variable "vm_orchestrator_parent" {
+  description = "Where the connector service account gets the OS policy orchestrator permissions (`osconfig.policyOrchestrators.*`) for VM scanning. AWS Systems Manager creates the scanner's orchestrator under the organization for an ORGANIZATION-scope connector with no project targets, and in the management (workload identity pool) project for a connector with project targets. `organization` grants them at the organization and works for both. `project` grants them only in the management project; use it only for project-targeted connectors. If the connector later changes to ORGANIZATION scope, orchestrator creation fails until this is `organization`. The read-only VM permissions stay at the organization, and the VM write permissions stay in `target_project_ids`, for both values."
+  type        = string
+  default     = "organization"
+  nullable    = false
+
+  validation {
+    condition     = contains(["organization", "project"], var.vm_orchestrator_parent)
+    error_message = "vm_orchestrator_parent must be organization or project."
+  }
+}

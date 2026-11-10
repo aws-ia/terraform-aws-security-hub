@@ -314,6 +314,11 @@ run "vm_scanning" {
     ])
     error_message = "OSPolicySSMOrchestrator must have exactly its 22 permissions, none of which changes a VM."
   }
+  # Default vm_orchestrator_parent = "organization": no project-level orchestrator grant.
+  assert {
+    condition     = length(google_organization_iam_custom_role.vm_project_orchestrator) == 0 && length(google_project_iam_member.vm_project_orchestrator) == 0 && keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"]
+    error_message = "With vm_orchestrator_parent = organization the orchestrator permissions must be granted only at the organization."
+  }
   assert {
     condition = google_organization_iam_custom_role.vm_deployer[0].permissions == toset([
       "compute.instances.setLabels",
@@ -794,4 +799,62 @@ run "rejects_unmanaged_audit_missing_log_type" {
   }
 
   expect_failures = [terraform_data.preflight]
+}
+
+# vm_orchestrator_parent = "project": orchestrator writes only in the
+# management project, reads still at the organization.
+run "vm_orchestrator_parent_project" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    vm_orchestrator_parent = "project"
+    target_project_ids     = ["target-project-1"]
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  assert {
+    condition     = length([for p in google_organization_iam_custom_role.vm_orchestrator[0].permissions : p if startswith(p, "osconfig.policyOrchestrators.")]) == 0 && length(google_organization_iam_custom_role.vm_orchestrator[0].permissions) == 17
+    error_message = "With vm_orchestrator_parent = project the organization role must hold only the 17 read-only permissions."
+  }
+  assert {
+    condition = google_organization_iam_custom_role.vm_project_orchestrator[0].permissions == toset([
+      "osconfig.policyOrchestrators.create",
+      "osconfig.policyOrchestrators.delete",
+      "osconfig.policyOrchestrators.get",
+      "osconfig.policyOrchestrators.list",
+      "osconfig.policyOrchestrators.update",
+    ])
+    error_message = "OSPolicySSMProjectOrchestrator must hold exactly the five policyOrchestrators permissions."
+  }
+  assert {
+    condition     = keys(google_project_iam_member.vm_project_orchestrator) == ["111122223333"] && google_project_iam_member.vm_project_orchestrator["111122223333"].project == "mgmt-project-1"
+    error_message = "The orchestrator permissions must be granted in the management project, once per VM scanning account."
+  }
+  assert {
+    condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]
+    error_message = "The organization read grant and the target deployer grant must not change."
+  }
+}
+
+run "rejects_invalid_vm_orchestrator_parent" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    vm_orchestrator_parent = "folder"
+  }
+
+  expect_failures = [var.vm_orchestrator_parent]
 }

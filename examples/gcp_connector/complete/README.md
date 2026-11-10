@@ -46,6 +46,7 @@ No resources.
 | <a name="input_manage_audit_config"></a> [manage\_audit\_config](#input\_manage\_audit\_config) | Create and own the organization audit configuration. Set false when another configuration owns it. | `bool` | `true` | no |
 | <a name="input_pubsub_kms_key_name"></a> [pubsub\_kms\_key\_name](#input\_pubsub\_kms\_key\_name) | Optional Cloud KMS key for the connector topics. Null uses Google-managed encryption. | `string` | `null` | no |
 | <a name="input_target_project_ids"></a> [target\_project\_ids](#input\_target\_project\_ids) | Projects whose Compute Engine VMs Amazon Inspector scans. Leave empty to skip VM scanning. | `list(string)` | `[]` | no |
+| <a name="input_vm_orchestrator_parent"></a> [vm\_orchestrator\_parent](#input\_vm\_orchestrator\_parent) | Where the connector gets the OS policy orchestrator permissions: organization (any connector scope) or project (project-targeted connectors only). See the module documentation. | `string` | `"organization"` | no |
 
 ### Outputs
 

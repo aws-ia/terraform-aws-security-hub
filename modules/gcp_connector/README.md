@@ -10,8 +10,8 @@ Creates the Google Cloud resources that let AWS Config and Amazon Inspector read
 | Per AWS account | `enable_inspector` | Amazon Inspector federation subject, `inspectorFunctionSourceReader` custom role grant, image-pull log sink and topic |
 | Per AWS account and Region | `enable_inspector` | Pull subscription on the image-pull topic |
 | Organization | any `enable_inspector` | `inspectorFunctionSourceReader` custom role, Artifact Registry `DATA_READ` audit log (unless `manage_audit_config = false`) |
-| Per AWS account | `enable_inspector`, `enable_inspector_vm` and `target_project_ids` | VM scanning federation subject and audience, `OSPolicySSMOrchestrator` grant at the organization, `OSPolicySSMTargetDeployer` grant in each target project |
-| Organization and each target project | VM scanning for any account | `OSPolicySSMOrchestrator` and `OSPolicySSMTargetDeployer` custom roles, OS Config and Progressive Rollout service agents and their roles, `enable-osconfig` project metadata, VM Manager `full` feature set |
+| Per AWS account | `enable_inspector`, `enable_inspector_vm` and `target_project_ids` | VM scanning federation subject and audience, `OSPolicySSMOrchestrator` grant at the organization, `OSPolicySSMProjectOrchestrator` grant in the management project (with `vm_orchestrator_parent = "project"`), `OSPolicySSMTargetDeployer` grant in each target project |
+| Organization and each target project | VM scanning for any account | `OSPolicySSMOrchestrator`, `OSPolicySSMTargetDeployer` and, with `vm_orchestrator_parent = "project"`, `OSPolicySSMProjectOrchestrator` custom roles, OS Config and Progressive Rollout service agents and their roles, `enable-osconfig` project metadata, VM Manager `full` feature set |
 | Management project | `pubsub_kms_key_name` | Pub/Sub service agent and its `roles/cloudkms.cryptoKeyEncrypterDecrypter` grant on the key |
 
 The connector finds its resources by name and by the `aws-config-discovery=<account>-<region>-<management project>` label, so the module uses fixed name templates such as `connector-pool-<account>` and `config-sa-<account>`.
@@ -71,10 +71,20 @@ Every connector module takes the same `onboarded_accounts` list, but two attribu
 
 AWS Systems Manager installs the Amazon Inspector VM scanner through an OS policy orchestrator. For a connector with project targets it creates the orchestrator in the management project; for an ORGANIZATION-scope connector it creates it under the organization, and the orchestrator then reaches every VM with an active OS Config agent in the organization. Creating an orchestrator needs `osconfig.policyOrchestrators.*` on its parent, and the orchestrator writes the OS policy assignments through the OS Config rollout service agent. So the VM permissions are split:
 
-- `OSPolicySSMOrchestrator`, granted at the organization: the `osconfig.policyOrchestrators.*` permissions plus read-only compute, inventory, OS policy, asset, project and service usage permissions.
+- `OSPolicySSMOrchestrator`, granted at the organization: read-only compute, inventory, OS policy, asset, project and service usage permissions, plus the `osconfig.policyOrchestrators.*` permissions when `vm_orchestrator_parent = "organization"`.
+- `OSPolicySSMProjectOrchestrator`, only with `vm_orchestrator_parent = "project"`, granted only in the management project: the `osconfig.policyOrchestrators.*` permissions.
 - `OSPolicySSMTargetDeployer`, granted only in each `target_project_ids` project: `compute.instances.setMetadata`, `compute.instances.setLabels`, `iam.serviceAccounts.actAs` and the OS policy assignment writes. No organization grant can set VM metadata or act as a VM's service account.
 
 This module sets `enable-osconfig` and VM Manager only in `target_project_ids`.
+
+Choose `vm_orchestrator_parent` by the connector's scope:
+
+| Connector scope | Orchestrator parent | `vm_orchestrator_parent` |
+|---|---|---|
+| ORGANIZATION, no project targets | The organization | `organization` (required) |
+| Project targets | The management project | `project` or `organization` |
+
+`organization` (the default) works for every scope. `project` keeps orchestrator writes out of the organization, but if the connector later changes to ORGANIZATION scope with no project targets, Systems Manager cannot create the orchestrator until you set `organization` and apply.
 
 ## Encryption
 
@@ -156,6 +166,7 @@ No modules.
 | [google_organization_iam_custom_role.function_source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_custom_role.vm_deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_custom_role.vm_orchestrator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
+| [google_organization_iam_custom_role.vm_project_orchestrator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_member.connector_read](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.inspector_function_source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.org_orchestrator_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
@@ -163,6 +174,7 @@ No modules.
 | [google_project_iam_member.cloud_asset_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.target_orchestrator_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.vm_deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.vm_project_orchestrator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_service.management](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
 | [google_project_service.management_osconfig](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
 | [google_project_service.target_vm](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
@@ -198,6 +210,7 @@ No modules.
 | <a name="input_permission_model"></a> [permission\_model](#input\_permission\_model) | Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service. | `string` | `"broad"` | no |
 | <a name="input_pubsub_kms_key_name"></a> [pubsub\_kms\_key\_name](#input\_pubsub\_kms\_key\_name) | Optional Cloud KMS key for the lifecycle, Cloud Asset Inventory and image-pull topics, as `projects/<project>/locations/<location>/keyRings/<key ring>/cryptoKeys/<key>`. When set, the module grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. When `null`, the topics use Google-managed encryption. | `string` | `null` | no |
 | <a name="input_target_project_ids"></a> [target\_project\_ids](#input\_target\_project\_ids) | Projects whose Compute Engine VMs Amazon Inspector scans. A nonempty list sets up VM scanning for every account that enables Inspector and `enable_inspector_vm`: VM scanning federation, the OS policy orchestrator role at the organization, the VM deployer role in each target project, the OS Config and Progressive Rollout service agents, and VM Manager in each project. The VM deployer role, which can set VM metadata and act as the VM service account, is granted only in these projects. Leave empty to skip VM scanning. | `list(string)` | `[]` | no |
+| <a name="input_vm_orchestrator_parent"></a> [vm\_orchestrator\_parent](#input\_vm\_orchestrator\_parent) | Where the connector service account gets the OS policy orchestrator permissions (`osconfig.policyOrchestrators.*`) for VM scanning. AWS Systems Manager creates the scanner's orchestrator under the organization for an ORGANIZATION-scope connector with no project targets, and in the management (workload identity pool) project for a connector with project targets. `organization` grants them at the organization and works for both. `project` grants them only in the management project; use it only for project-targeted connectors. If the connector later changes to ORGANIZATION scope, orchestrator creation fails until this is `organization`. The read-only VM permissions stay at the organization, and the VM write permissions stay in `target_project_ids`, for both values. | `string` | `"organization"` | no |
 
 ### Outputs
 
