@@ -19,15 +19,40 @@ locals {
 }
 
 ##################################################
+# Optional customer-managed key for the topics
+##################################################
+# A topic with a Cloud KMS key fails to create until the management project's
+# Pub/Sub service agent can use the key, so every topic depends on this grant.
+resource "google_project_service_identity" "pubsub" {
+  provider = google-beta
+  count    = var.pubsub_kms_key_name == null ? 0 : 1
+
+  project = local.project
+  service = "pubsub.googleapis.com"
+
+  depends_on = [google_project_service.management]
+}
+
+resource "google_kms_crypto_key_iam_member" "pubsub_agent" {
+  count = var.pubsub_kms_key_name == null ? 0 : 1
+
+  crypto_key_id = var.pubsub_kms_key_name
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = google_project_service_identity.pubsub[0].member
+}
+
+##################################################
 # Lifecycle log sink
 ##################################################
 resource "google_pubsub_topic" "lifecycle" {
+  #checkov:skip=CKV_GCP_83:A customer-managed key is optional. Set pubsub_kms_key_name to use one; the default is Google-managed encryption.
   for_each = local.account_names
 
-  project = local.project
-  name    = each.value.lifecycle_topic
+  project      = local.project
+  name         = each.value.lifecycle_topic
+  kms_key_name = var.pubsub_kms_key_name
 
-  depends_on = [google_project_service.management]
+  depends_on = [google_project_service.management, google_kms_crypto_key_iam_member.pubsub_agent]
 }
 
 resource "google_pubsub_subscription" "lifecycle" {
@@ -82,12 +107,14 @@ resource "google_pubsub_subscription_iam_member" "lifecycle_subscriber" {
 # Cloud Asset Inventory feed
 ##################################################
 resource "google_pubsub_topic" "cai" {
+  #checkov:skip=CKV_GCP_83:A customer-managed key is optional. Set pubsub_kms_key_name to use one; the default is Google-managed encryption.
   for_each = local.account_names
 
-  project = local.project
-  name    = each.value.feed_topic
+  project      = local.project
+  name         = each.value.feed_topic
+  kms_key_name = var.pubsub_kms_key_name
 
-  depends_on = [google_project_service.management]
+  depends_on = [google_project_service.management, google_kms_crypto_key_iam_member.pubsub_agent]
 }
 
 resource "google_pubsub_subscription" "cai" {

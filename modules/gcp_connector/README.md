@@ -6,12 +6,13 @@ Creates the Google Cloud resources that let AWS Config and Amazon Inspector read
 |-------|-----------|-----------|
 | Per AWS account | always | Workload identity pool and OIDC provider, connector service account with organization reader roles, impersonation bindings, organization lifecycle log sink and topic, Cloud Asset Inventory feed and topic |
 | Per AWS account and Region | always | One pull subscription on the lifecycle topic and one on the feed topic, with the `aws-config-discovery` label |
-| Organization | always | `allServices` `DATA_WRITE` audit log, Cloud Asset service agent, management project APIs |
+| Organization | always | `allServices` `DATA_WRITE` audit log (unless `manage_audit_config = false`), Cloud Asset service agent, management project APIs |
 | Per AWS account | `enable_inspector` | Amazon Inspector federation subject, `inspectorFunctionSourceReader` custom role grant, image-pull log sink and topic |
 | Per AWS account and Region | `enable_inspector` | Pull subscription on the image-pull topic |
-| Organization | any `enable_inspector` | `inspectorFunctionSourceReader` custom role, Artifact Registry `DATA_READ` audit log |
-| Per AWS account | `enable_inspector`, `enable_inspector_vm` and `target_project_ids` | VM scanning federation subject and audience, `OSPolicySSMDeployer` custom role grant |
-| Organization and each target project | VM scanning for any account | `OSPolicySSMDeployer` custom role, OS Config and Progressive Rollout service agents and their roles, `enable-osconfig` project metadata, VM Manager `full` feature set |
+| Organization | any `enable_inspector` | `inspectorFunctionSourceReader` custom role, Artifact Registry `DATA_READ` audit log (unless `manage_audit_config = false`) |
+| Per AWS account | `enable_inspector`, `enable_inspector_vm` and `target_project_ids` | VM scanning federation subject and audience, `OSPolicySSMOrchestrator` grant at the organization, `OSPolicySSMTargetDeployer` grant in each target project |
+| Organization and each target project | VM scanning for any account | `OSPolicySSMOrchestrator` and `OSPolicySSMTargetDeployer` custom roles, OS Config and Progressive Rollout service agents and their roles, `enable-osconfig` project metadata, VM Manager `full` feature set |
+| Management project | `pubsub_kms_key_name` | Pub/Sub service agent and its `roles/cloudkms.cryptoKeyEncrypterDecrypter` grant on the key |
 
 The connector finds its resources by name and by the `aws-config-discovery=<account>-<region>-<management project>` label, so the module uses fixed name templates such as `connector-pool-<account>` and `config-sa-<account>`.
 
@@ -23,6 +24,7 @@ The `google` and `google-beta` provider identity needs:
 
 - On the organization: Organization Administrator (`roles/resourcemanager.organizationAdmin`) for the organization IAM grants and audit configuration, Organization Role Administrator (`roles/iam.organizationRoleAdmin`) for the custom roles, Logs Configuration Writer (`roles/logging.configWriter`) for the log sinks, Cloud Asset Owner (`roles/cloudasset.owner`) for the feeds, and Folder Viewer (`roles/resourcemanager.folderViewer`) for the project ancestry check.
 - Owner on the management project and on every project in `target_project_ids`.
+- With `pubsub_kms_key_name`: permission to set the key's IAM policy (`cloudkms.cryptoKeys.setIamPolicy`, for example Cloud KMS Admin, `roles/cloudkms.admin`, on the key).
 
 Configure the management project as the provider's billing project, with `user_project_override = true`, so that organization-level reads bill to it.
 
@@ -58,24 +60,47 @@ module "gcp_connector" {
 
 Get an account's issuer URL with `aws iam get-outbound-web-identity-federation-info`. If outbound identity federation is not enabled, enable it with `aws iam enable-outbound-web-identity-federation`.
 
+## Shared `onboarded_accounts` lists
+
+Every connector module takes the same `onboarded_accounts` list, but two attributes behave differently here:
+
+- `enable_cspm` is accepted and not read. The lifecycle sink, the Cloud Asset Inventory feed and the audit log feed AWS Config, which Amazon Inspector's GCP connector also uses to discover resources, so there are no CSPM-only resources for `false` to turn off. `azure_connector_entra` treats `enable_cspm` the same way; in `azure_connector_arm`, `enable_cspm = false` turns off the CSPM pipeline.
+- `enable_inspector` defaults to `false` here and to `true` in both Azure modules. On GCP, Inspector adds organization-wide changes: the Artifact Registry `DATA_READ` audit log for the whole organization, organization custom roles and Cloud Functions source read across the organization. Set `enable_inspector` explicitly in a list that several modules share.
+
+## VM scanning permissions
+
+AWS Systems Manager installs the Amazon Inspector VM scanner through an OS policy orchestrator. For a connector with project targets it creates the orchestrator in the management project; for an ORGANIZATION-scope connector it creates it under the organization, and the orchestrator then reaches every VM with an active OS Config agent in the organization. Creating an orchestrator needs `osconfig.policyOrchestrators.*` on its parent, and the orchestrator writes the OS policy assignments through the OS Config rollout service agent. So the VM permissions are split:
+
+- `OSPolicySSMOrchestrator`, granted at the organization: the `osconfig.policyOrchestrators.*` permissions plus read-only compute, inventory, OS policy, asset, project and service usage permissions.
+- `OSPolicySSMTargetDeployer`, granted only in each `target_project_ids` project: `compute.instances.setMetadata`, `compute.instances.setLabels`, `iam.serviceAccounts.actAs` and the OS policy assignment writes. No organization grant can set VM metadata or act as a VM's service account.
+
+This module sets `enable-osconfig` and VM Manager only in `target_project_ids`.
+
+## Encryption
+
+The lifecycle, Cloud Asset Inventory and image-pull topics use Google-managed encryption. Set `pubsub_kms_key_name` to use a Cloud KMS key instead. The module then grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key before it creates the topics.
+
 ## Checks before any write
 
 The plan stops before it creates anything when:
 
-- The management project or a VM target project does not exist, is not `ACTIVE`, or is not in `organization_id` through any folder depth. When the caller cannot read a parent folder, the plan stops with the provider's folder read error.
+- The management project or a VM target project does not exist, is not `ACTIVE`, or is not in `organization_id` through any folder depth. The module reads the project number from the same project list, so a missing project stops with this check's message, not a provider read error. When the caller cannot read a parent folder, the plan stops with the provider's folder read error.
 - An organization audit exemption (`exemptedMembers`) suppresses an audit event that the connector needs. The module does not remove an existing exemption.
+- `manage_audit_config` is `false` and the organization does not enable a required audit log type (`allServices` `DATA_WRITE`, and with Inspector `artifactregistry.googleapis.com` `DATA_READ`).
 
 ## Audit configuration
 
 `google_organization_iam_audit_config` replaces the whole audit configuration of the service it names. The module reads the organization IAM policy during plan and keeps the log types and exemptions that are already set on `allServices` and, with Inspector, on `artifactregistry.googleapis.com`. Folder and project audit configurations are not changed.
 
+Set `manage_audit_config = false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, checks that the required log types are already on, and leaves the audit configuration unchanged on destroy. In an existing deployment, run `terraform state rm` on the two audit configuration resources before you change it to `false`, or the next apply removes them (see Destroying).
+
 ## VM scanning and gcloud
 
-Three steps have no provider resource: the organization-scoped and project-scoped OS Config and Progressive Rollout service identities, and the VM Manager `full` feature set. The module runs `gcloud` for them with `local-exec`, so an apply with `target_project_ids` needs the `gcloud` CLI with the beta component on `PATH`. `gcloud` uses the `google` provider's access token, so it acts as the same identity as Terraform. Terraform suppresses the command output because the token is sensitive; if a command fails, run it by hand to see the error. The token expires after about one hour, so apply a saved plan within that time.
+The module creates the organization and target project OS Config and Progressive Rollout service identities with `google_organization_service_identity` and `google_project_service_identity`. Generating the OS Config identity also creates the `gcp-sa-osconfig-rollout` agent. One step has no provider resource: the VM Manager `full` feature set. The module runs `gcloud` for it with `local-exec`, so an apply with `target_project_ids` needs the `gcloud` CLI on `PATH`. `gcloud` uses the `google` provider's access token, so it acts as the same identity as Terraform. Terraform suppresses the command output because the token is sensitive; if a command fails, run it by hand to see the error. The token expires after about one hour, so apply a saved plan within that time.
 
 ## Secrets in Terraform state
 
-The `google_client_config` data source stores the provider's short-lived access token in state. Store the state in an encrypted remote backend with access limited to the people and pipelines that apply this module.
+With `target_project_ids`, the `google_client_config` data source stores the provider's short-lived access token in state. Store the state in an encrypted remote backend with access limited to the people and pipelines that apply this module.
 
 ## Existing deployments
 
@@ -85,11 +110,11 @@ This module creates new resources. If a resource with the same name already exis
 
 Destroying the module removes everything it created, including resources that other workloads in the organization can share:
 
-- The `allServices` and `artifactregistry.googleapis.com` audit configurations, including log types and exemptions that existed before. To keep them, run `terraform state rm` on `google_organization_iam_audit_config.all_services_write` and `google_organization_iam_audit_config.artifactregistry_read` first.
-- The `inspectorFunctionSourceReader` and `OSPolicySSMDeployer` custom roles. A deleted custom role keeps its role ID reserved, so creating it again fails until you undelete the role or GCP completes the deletion.
+- The `allServices` and `artifactregistry.googleapis.com` audit configurations, including log types and exemptions that existed before. To keep them, set `manage_audit_config = false` before the first apply. In an existing deployment, first run `terraform state rm` on `google_organization_iam_audit_config.all_services_write` and `google_organization_iam_audit_config.artifactregistry_read`; changing the input alone removes them on the next apply.
+- The `inspectorFunctionSourceReader`, `OSPolicySSMOrchestrator` and `OSPolicySSMTargetDeployer` custom roles. A deleted custom role keeps its role ID reserved, so creating it again fails until you undelete the role or GCP completes the deletion.
 - The `enable-osconfig` metadata item, which turns off the OS Config agent for every VM in the target projects.
 
-A destroyed workload identity pool stays soft-deleted for 30 days and blocks a new pool with the same name until you undelete it. The service identities and the VM Manager feature set that `gcloud` creates are not removed.
+A destroyed workload identity pool stays soft-deleted for 30 days and blocks a new pool with the same name until you undelete it. Service identities cannot be destroyed, so they stay. The VM Manager feature set that `gcloud` sets is not changed back.
 
 ### Requirements
 
@@ -97,14 +122,14 @@ A destroyed workload identity pool stays soft-deleted for 30 days and blocks a n
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9.0 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.50 |
-| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | >= 6.50 |
+| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | >= 7.27 |
 
 ### Providers
 
 | Name | Version |
 |------|---------|
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.50 |
-| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | >= 6.50 |
+| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | >= 7.27 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ### Modules
@@ -115,23 +140,29 @@ No modules.
 
 | Name | Type |
 |------|------|
+| [google-beta_google_organization_service_identity.orchestrator](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_organization_service_identity) | resource |
 | [google-beta_google_project_service_identity.cloud_asset](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
+| [google-beta_google_project_service_identity.pubsub](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
+| [google-beta_google_project_service_identity.target_orchestrator](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
 | [google_cloud_asset_organization_feed.cai](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_asset_organization_feed) | resource |
 | [google_compute_project_metadata_item.target_enable_osconfig](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_project_metadata_item) | resource |
 | [google_iam_workload_identity_pool.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool) | resource |
 | [google_iam_workload_identity_pool_provider.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool_provider) | resource |
+| [google_kms_crypto_key_iam_member.pubsub_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/kms_crypto_key_iam_member) | resource |
 | [google_logging_organization_sink.inspector_pull](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_organization_sink) | resource |
 | [google_logging_organization_sink.lifecycle](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_organization_sink) | resource |
 | [google_organization_iam_audit_config.all_services_write](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_audit_config) | resource |
 | [google_organization_iam_audit_config.artifactregistry_read](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_audit_config) | resource |
 | [google_organization_iam_custom_role.function_source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_custom_role.vm_deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
+| [google_organization_iam_custom_role.vm_orchestrator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_custom_role) | resource |
 | [google_organization_iam_member.connector_read](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.inspector_function_source](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_organization_iam_member.org_orchestrator_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
-| [google_organization_iam_member.vm_deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
+| [google_organization_iam_member.vm_orchestrator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/organization_iam_member) | resource |
 | [google_project_iam_member.cloud_asset_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_iam_member.target_orchestrator_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.vm_deployer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_project_service.management](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
 | [google_project_service.management_osconfig](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
 | [google_project_service.target_vm](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_service) | resource |
@@ -149,34 +180,34 @@ No modules.
 | [google_pubsub_topic_iam_member.lifecycle_writer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_member) | resource |
 | [google_service_account.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_iam_member.impersonation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
-| [terraform_data.org_service_agents](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.preflight](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
-| [terraform_data.target_service_agents](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.target_vm_manager_full](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [google_client_config.current](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
 | [google_folder.parent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/folder) | data source |
 | [google_organization_iam_policy.organization](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/organization_iam_policy) | data source |
-| [google_project.management](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
-| [google_project.target](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/project) | data source |
 | [google_projects.checked](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/projects) | data source |
 
 ### Inputs
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_onboarded_accounts"></a> [onboarded\_accounts](#input\_onboarded\_accounts) | AWS account and Region pairs that read from this GCP organization.<br/>`aws_account_id`      - 12-digit AWS account ID. Names the workload identity pool and provider, the service account, the log sinks, the Cloud Asset Inventory feed and the topics.<br/>`aws_region`          - AWS Region of the connector, for example `us-east-1`. Names the Pub/Sub subscriptions and forms their discovery label.<br/>`issuer_url`          - The account's outbound identity federation issuer URL, `https://<id>.tokens.sts.global.api.aws`.<br/>`enable_cspm`         - Enable the CSPM pipeline. Defaults to `true`. The shared AWS Config resources are always created, so this module does not read it; accepted so every connector module takes the same list.<br/>`enable_inspector`    - Enable Amazon Inspector for this account and Region. Defaults to `false`. Adds Inspector federation, Cloud Functions source access, the image-pull log route and the Artifact Registry read audit log.<br/>`enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role and grant it the OS policy deployer role. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.<br/>An account can appear once per Region. Per-account resources are created once per account; Inspector is on for an account when any of its Regions enables it. | <pre>list(object({<br/>    aws_account_id      = string<br/>    aws_region          = string<br/>    issuer_url          = string<br/>    enable_cspm         = optional(bool, true)<br/>    enable_inspector    = optional(bool, false)<br/>    enable_inspector_vm = optional(bool, true)<br/>  }))</pre> | n/a | yes |
+| <a name="input_onboarded_accounts"></a> [onboarded\_accounts](#input\_onboarded\_accounts) | AWS account and Region pairs that read from this GCP organization.<br/>`aws_account_id`      - 12-digit AWS account ID. Names the workload identity pool and provider, the service account, the log sinks, the Cloud Asset Inventory feed and the topics.<br/>`aws_region`          - AWS Region of the connector, for example `us-east-1`. Names the Pub/Sub subscriptions and forms their discovery label.<br/>`issuer_url`          - The account's outbound identity federation issuer URL, `https://<id>.tokens.sts.global.api.aws`.<br/>`enable_cspm`         - Enable the CSPM pipeline. Defaults to `true`. The shared AWS Config resources are always created, so this module does not read it; accepted so every connector module takes the same list.<br/>`enable_inspector`    - Enable Amazon Inspector for this account and Region. Defaults to `false`. Adds Inspector federation, Cloud Functions source access, the image-pull log route and the Artifact Registry read audit log.<br/>`enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role, grant it the OS policy orchestrator role at the organization and the VM deployer role in each target project. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.<br/>An account can appear once per Region. Per-account resources are created once per account; Inspector is on for an account when any of its Regions enables it. | <pre>list(object({<br/>    aws_account_id      = string<br/>    aws_region          = string<br/>    issuer_url          = string<br/>    enable_cspm         = optional(bool, true)<br/>    enable_inspector    = optional(bool, false)<br/>    enable_inspector_vm = optional(bool, true)<br/>  }))</pre> | n/a | yes |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | Numeric ID of the GCP organization to onboard. The log sinks, Cloud Asset Inventory feeds, reader roles, custom roles and audit configuration are created at this organization. | `string` | n/a | yes |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | ID of the GCP management project. It holds the service accounts, workload identity pools, topics and subscriptions, and must be in `organization_id`. Configure it as the provider's billing project. | `string` | n/a | yes |
+| <a name="input_manage_audit_config"></a> [manage\_audit\_config](#input\_manage\_audit\_config) | Create and own the organization audit configuration that the connector needs: `allServices` `DATA_WRITE` and, with Inspector, `artifactregistry.googleapis.com` `DATA_READ`. Set `false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, the plan stops when a required log type is not enabled, and destroy leaves the audit configuration unchanged. In an existing deployment, run `terraform state rm` on the two `google_organization_iam_audit_config` resources before you change this to `false`, or the next apply removes them. | `bool` | `true` | no |
 | <a name="input_permission_model"></a> [permission\_model](#input\_permission\_model) | Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service. | `string` | `"broad"` | no |
-| <a name="input_target_project_ids"></a> [target\_project\_ids](#input\_target\_project\_ids) | Projects whose Compute Engine VMs Amazon Inspector scans. A nonempty list sets up VM scanning for every account that enables Inspector and `enable_inspector_vm`: VM scanning federation, the OS policy deployer role, the OS Config and Progressive Rollout service agents, and VM Manager in each project. Leave empty to skip VM scanning. | `list(string)` | `[]` | no |
+| <a name="input_pubsub_kms_key_name"></a> [pubsub\_kms\_key\_name](#input\_pubsub\_kms\_key\_name) | Optional Cloud KMS key for the lifecycle, Cloud Asset Inventory and image-pull topics, as `projects/<project>/locations/<location>/keyRings/<key ring>/cryptoKeys/<key>`. When set, the module grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. When `null`, the topics use Google-managed encryption. | `string` | `null` | no |
+| <a name="input_target_project_ids"></a> [target\_project\_ids](#input\_target\_project\_ids) | Projects whose Compute Engine VMs Amazon Inspector scans. A nonempty list sets up VM scanning for every account that enables Inspector and `enable_inspector_vm`: VM scanning federation, the OS policy orchestrator role at the organization, the VM deployer role in each target project, the OS Config and Progressive Rollout service agents, and VM Manager in each project. The VM deployer role, which can set VM metadata and act as the VM service account, is granted only in these projects. Leave empty to skip VM scanning. | `list(string)` | `[]` | no |
 
 ### Outputs
 
 | Name | Description |
 |------|-------------|
-| <a name="output_accounts"></a> [accounts](#output\_accounts) | Per-account resources, keyed by AWS account ID. |
+| <a name="output_accounts"></a> [accounts](#output\_accounts) | Per-account resources, keyed by AWS account ID. `workload_identity_audience` is the exact audience for the token exchange. The sink writer identities are the principals that publish to the topics. |
+| <a name="output_custom_roles"></a> [custom\_roles](#output\_custom\_roles) | Names of the custom roles that the module creates, or null for a role that it does not create. |
 | <a name="output_federation_subjects"></a> [federation\_subjects](#output\_federation\_subjects) | AWS IAM role ARNs that each account's workload identity provider trusts, keyed by AWS account ID. |
 | <a name="output_organization_id"></a> [organization\_id](#output\_organization\_id) | GCP organization ID. |
 | <a name="output_per_account_connector_inputs"></a> [per\_account\_connector\_inputs](#output\_per\_account\_connector\_inputs) | Values each onboarded account needs to create its connector, keyed `<aws account>-<aws region>`. |
 | <a name="output_project_id"></a> [project\_id](#output\_project\_id) | GCP management project ID. |
 | <a name="output_project_number"></a> [project\_number](#output\_project\_number) | GCP management project number, as used in the workload identity principalSet path. |
+| <a name="output_service_agents"></a> [service\_agents](#output\_service\_agents) | Emails of the Google-managed service agents that the module creates or grants roles to. The OS Config agents are null without VM scanning; `pubsub` is null without `pubsub_kms_key_name`. |

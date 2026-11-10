@@ -1,13 +1,12 @@
-data "google_project" "management" {
-  project_id = var.project_id
-}
-
 locals {
   org     = var.organization_id
   project = var.project_id
 
   # The workload identity principalSet path uses the project NUMBER, not the ID.
-  project_number = data.google_project.management.number
+  # It comes from the preflight project record (preflight.tf), not from a
+  # google_project data source, so that a missing or inactive project stops
+  # at the preflight message instead of a provider read error.
+  project_number = local.project_numbers[local.project]
 
   ##################################################
   # Accounts

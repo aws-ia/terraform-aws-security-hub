@@ -10,6 +10,9 @@
 #
 # Scope: the organization only. Folder and project audit configurations are not
 # visible from an organization read.
+#
+# With manage_audit_config = false the module creates neither resource below,
+# and preflight.tf only checks that the required log types are already on.
 
 data "google_organization_iam_policy" "organization" {
   org_id = local.org
@@ -39,6 +42,15 @@ locals {
     )
   }
 
+  # Required log types that the organization does not enable now, as
+  # "<service> <log type>". Checked only when manage_audit_config = false. The
+  # check reads the entry of the named service only.
+  audit_missing = sort(flatten([
+    for svc, types in local.audit_required : [
+      for t in types : "${svc} ${t}" if !contains(keys(try(local.audit_existing[svc], {})), t)
+    ]
+  ]))
+
   # Exemptions that suppress a required event. For allServices every service
   # entry counts, because GCP adds per-service exemptions to the allServices
   # configuration. For one service, that service's entry and the allServices
@@ -57,6 +69,8 @@ locals {
 # allServices DATA_WRITE feeds the AWS Config lifecycle sink. Audit volume
 # starts only after the routes and grants exist.
 resource "google_organization_iam_audit_config" "all_services_write" {
+  count = var.manage_audit_config ? 1 : 0
+
   org_id  = local.org
   service = "allServices"
 
@@ -79,7 +93,7 @@ resource "google_organization_iam_audit_config" "all_services_write" {
 
 # Artifact Registry DATA_READ: image-pull events for Amazon Inspector.
 resource "google_organization_iam_audit_config" "artifactregistry_read" {
-  count = local.any_inspector ? 1 : 0
+  count = var.manage_audit_config && local.any_inspector ? 1 : 0
 
   org_id  = local.org
   service = "artifactregistry.googleapis.com"

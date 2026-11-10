@@ -1,10 +1,4 @@
 mock_provider "google" {
-  mock_data "google_project" {
-    defaults = {
-      number = "111111111111"
-    }
-  }
-
   mock_data "google_client_config" {
     defaults = {
       access_token = "mock-token"
@@ -57,10 +51,40 @@ override_data {
   }
 }
 
-override_data {
-  target = data.google_project.target["target-project-1"]
+# Service identities as the API returns them.
+override_resource {
+  override_during = plan
+  target          = google_organization_service_identity.orchestrator["osconfig.googleapis.com"]
   values = {
-    number = "222222222222"
+    email  = "service-org-123456789@gcp-sa-osconfig.iam.gserviceaccount.com"
+    member = "serviceAccount:service-org-123456789@gcp-sa-osconfig.iam.gserviceaccount.com"
+  }
+}
+
+override_resource {
+  override_during = plan
+  target          = google_organization_service_identity.orchestrator["progressiverollout.googleapis.com"]
+  values = {
+    email  = "service-org-123456789@gcp-sa-progrollout.iam.gserviceaccount.com"
+    member = "serviceAccount:service-org-123456789@gcp-sa-progrollout.iam.gserviceaccount.com"
+  }
+}
+
+override_resource {
+  override_during = plan
+  target          = google_project_service_identity.target_orchestrator["target-project-1:osconfig.googleapis.com"]
+  values = {
+    email  = "service-222222222222@gcp-sa-osconfig.iam.gserviceaccount.com"
+    member = "serviceAccount:service-222222222222@gcp-sa-osconfig.iam.gserviceaccount.com"
+  }
+}
+
+override_resource {
+  override_during = plan
+  target          = google_project_service_identity.target_orchestrator["target-project-1:progressiverollout.googleapis.com"]
+  values = {
+    email  = "service-222222222222@gcp-sa-progrollout.iam.gserviceaccount.com"
+    member = "serviceAccount:service-222222222222@gcp-sa-progrollout.iam.gserviceaccount.com"
   }
 }
 
@@ -122,16 +146,20 @@ run "config_only" {
     error_message = "Without Inspector the module must not create Inspector resources."
   }
   assert {
-    condition     = length(terraform_data.org_service_agents) == 0 && length(terraform_data.target_service_agents) == 0
-    error_message = "Without VM scanning the module must not run the gcloud commands."
+    condition     = length(google_organization_service_identity.orchestrator) == 0 && length(google_project_service_identity.target_orchestrator) == 0 && length(data.google_client_config.current) == 0
+    error_message = "Without VM scanning the module must not create the OS Config service identities or read the access token."
   }
   assert {
     condition     = contains(keys(google_organization_iam_member.connector_read), "111122223333|roles/viewer")
     error_message = "The broad permission model must grant roles/viewer."
   }
   assert {
-    condition     = [for c in google_organization_iam_audit_config.all_services_write.audit_log_config : c.log_type] == ["DATA_WRITE"]
+    condition     = [for c in google_organization_iam_audit_config.all_services_write[0].audit_log_config : c.log_type] == ["DATA_WRITE"]
     error_message = "allServices must enable DATA_WRITE."
+  }
+  assert {
+    condition     = google_pubsub_topic.lifecycle["111122223333"].kms_key_name == null && length(google_kms_crypto_key_iam_member.pubsub_agent) == 0 && length(google_project_service_identity.pubsub) == 0
+    error_message = "Without pubsub_kms_key_name the topics must use Google-managed encryption and the module must not grant a key."
   }
 }
 
@@ -237,8 +265,8 @@ run "inspector_subjects" {
     error_message = "Inspector must enable Artifact Registry DATA_READ."
   }
   assert {
-    condition     = length(google_organization_iam_custom_role.vm_deployer) == 0
-    error_message = "Without target projects the module must not create the VM deployer role."
+    condition     = length(google_organization_iam_custom_role.vm_deployer) == 0 && length(google_organization_iam_custom_role.vm_orchestrator) == 0
+    error_message = "Without target projects the module must not create the VM roles."
   }
 }
 
@@ -260,49 +288,71 @@ run "vm_scanning" {
   }
 
   assert {
-    condition = google_organization_iam_custom_role.vm_deployer[0].permissions == toset([
+    condition = google_organization_iam_custom_role.vm_orchestrator[0].permissions == toset([
       "cloudasset.assets.searchAllResources",
       "compute.instances.get",
       "compute.instances.list",
-      "compute.instances.setLabels",
-      "compute.instances.setMetadata",
       "compute.projects.get",
       "compute.regions.get",
       "compute.zoneOperations.get",
-      "iam.serviceAccounts.actAs",
       "osconfig.inventories.get",
       "osconfig.inventories.list",
-      "osconfig.osPolicyAssignments.create",
-      "osconfig.osPolicyAssignments.update",
-      "osconfig.osPolicyAssignments.get",
-      "osconfig.osPolicyAssignments.list",
-      "osconfig.osPolicyAssignments.delete",
-      "osconfig.osPolicyAssignmentReports.list",
-      "osconfig.osPolicyAssignmentReports.get",
-      "osconfig.policyOrchestrators.create",
-      "osconfig.policyOrchestrators.update",
-      "osconfig.policyOrchestrators.get",
-      "osconfig.policyOrchestrators.list",
-      "osconfig.policyOrchestrators.delete",
       "osconfig.operations.get",
       "osconfig.operations.list",
+      "osconfig.osPolicyAssignmentReports.get",
+      "osconfig.osPolicyAssignmentReports.list",
+      "osconfig.osPolicyAssignments.get",
+      "osconfig.osPolicyAssignments.list",
+      "osconfig.policyOrchestrators.create",
+      "osconfig.policyOrchestrators.delete",
+      "osconfig.policyOrchestrators.get",
+      "osconfig.policyOrchestrators.list",
+      "osconfig.policyOrchestrators.update",
       "resourcemanager.projects.get",
       "serviceusage.services.get",
       "serviceusage.services.list",
     ])
-    error_message = "OSPolicySSMDeployer must have exactly its 28 permissions."
+    error_message = "OSPolicySSMOrchestrator must have exactly its 22 permissions, none of which changes a VM."
   }
   assert {
-    condition     = keys(terraform_data.target_service_agents) == ["target-project-1"] && keys(terraform_data.target_vm_manager_full) == ["target-project-1"] && length(terraform_data.org_service_agents) == 1
-    error_message = "VM scanning must create the service agents and set VM Manager in each target project."
+    condition = google_organization_iam_custom_role.vm_deployer[0].permissions == toset([
+      "compute.instances.setLabels",
+      "compute.instances.setMetadata",
+      "iam.serviceAccounts.actAs",
+      "osconfig.osPolicyAssignments.create",
+      "osconfig.osPolicyAssignments.delete",
+      "osconfig.osPolicyAssignments.update",
+    ])
+    error_message = "OSPolicySSMTargetDeployer must have exactly its 6 VM write permissions."
+  }
+  # The VM write permissions must never be granted at the organization.
+  assert {
+    condition     = length(setintersection(google_organization_iam_custom_role.vm_orchestrator[0].permissions, google_organization_iam_custom_role.vm_deployer[0].permissions)) == 0 && length(setintersection(google_organization_iam_custom_role.vm_orchestrator[0].permissions, toset(["compute.instances.setMetadata", "compute.instances.setLabels", "iam.serviceAccounts.actAs", "osconfig.osPolicyAssignments.create", "osconfig.osPolicyAssignments.update", "osconfig.osPolicyAssignments.delete"]))) == 0
+    error_message = "No organization grant may carry setMetadata, setLabels, actAs or OS policy assignment writes."
+  }
+  assert {
+    condition     = keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"] && google_project_iam_member.vm_deployer["target-project-1|111122223333"].project == "target-project-1"
+    error_message = "The VM deployer role must be granted once per target project and VM scanning account, in the target project."
+  }
+  assert {
+    condition     = toset(keys(google_project_service_identity.target_orchestrator)) == toset(["target-project-1:osconfig.googleapis.com", "target-project-1:progressiverollout.googleapis.com"]) && toset(keys(google_organization_service_identity.orchestrator)) == toset(["osconfig.googleapis.com", "progressiverollout.googleapis.com"]) && keys(terraform_data.target_vm_manager_full) == ["target-project-1"]
+    error_message = "VM scanning must create the organization and target service identities and set VM Manager in each target project."
   }
   assert {
     condition     = google_project_iam_member.target_orchestrator_agent["target-project-1:osconfig"].member == "serviceAccount:service-222222222222@gcp-sa-osconfig.iam.gserviceaccount.com"
     error_message = "Target orchestrator grants must use the target project number, not the management project number."
   }
   assert {
-    condition     = google_organization_iam_member.org_orchestrator_agent["progrollout"].member == "serviceAccount:service-org-123456789@gcp-sa-progrollout.iam.gserviceaccount.com"
+    condition     = google_organization_iam_member.org_orchestrator_agent["progrollout"].member == "serviceAccount:service-org-123456789@gcp-sa-progrollout.iam.gserviceaccount.com" && google_organization_iam_member.org_orchestrator_agent["osconfig-rollout"].member == "serviceAccount:service-org-123456789@gcp-sa-osconfig-rollout.iam.gserviceaccount.com"
     error_message = "Organization orchestrator grants must use the organization service agents."
+  }
+  assert {
+    condition     = google_project_iam_member.target_orchestrator_agent["target-project-1:osconfig-rollout"].member == "serviceAccount:service-222222222222@gcp-sa-osconfig-rollout.iam.gserviceaccount.com"
+    error_message = "The target rollout agent must use the target project number from the preflight record."
+  }
+  assert {
+    condition     = output.service_agents.target_projects["target-project-1"].osconfig_rollout == "service-222222222222@gcp-sa-osconfig-rollout.iam.gserviceaccount.com" && output.service_agents.organization.osconfig == "service-org-123456789@gcp-sa-osconfig.iam.gserviceaccount.com"
+    error_message = "The outputs must report the organization and target service agents."
   }
   assert {
     condition     = google_compute_project_metadata_item.target_enable_osconfig["target-project-1"].value == "TRUE"
@@ -359,8 +409,8 @@ run "vm_trust_per_account" {
     error_message = "An account without VM scanning must not allow api://AWSTokenExchange."
   }
   assert {
-    condition     = keys(google_organization_iam_member.vm_deployer) == ["111122223333"]
-    error_message = "Only the account that opts in may get the VM deployer grant."
+    condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]
+    error_message = "Only the account that opts in may get the VM orchestrator and deployer grants."
   }
 }
 
@@ -380,11 +430,11 @@ run "audit_merge_keeps_existing" {
   }
 
   assert {
-    condition     = toset([for c in google_organization_iam_audit_config.all_services_write.audit_log_config : c.log_type]) == toset(["ADMIN_READ", "DATA_WRITE"])
+    condition     = toset([for c in google_organization_iam_audit_config.all_services_write[0].audit_log_config : c.log_type]) == toset(["ADMIN_READ", "DATA_WRITE"])
     error_message = "The audit configuration must keep the existing log types and add DATA_WRITE."
   }
   assert {
-    condition     = one([for c in google_organization_iam_audit_config.all_services_write.audit_log_config : c.exempted_members if c.log_type == "ADMIN_READ"]) == toset(["user:admin@example.com"])
+    condition     = one([for c in google_organization_iam_audit_config.all_services_write[0].audit_log_config : c.exempted_members if c.log_type == "ADMIN_READ"]) == toset(["user:admin@example.com"])
     error_message = "The audit configuration must keep the existing exemptions."
   }
 }
@@ -588,4 +638,160 @@ run "rejects_invalid_issuer" {
   }
 
   expect_failures = [var.onboarded_accounts]
+}
+
+# The management project number comes from the preflight project record, not
+# from a google_project data source that would fail first on a missing project.
+run "project_number_from_preflight_record" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  override_data {
+    target = data.google_projects.checked["mgmt-project-1"]
+    values = {
+      projects = [{
+        project_id      = "mgmt-project-1"
+        number          = "333333333333"
+        lifecycle_state = "ACTIVE"
+        parent          = { type = "organization", id = "123456789" }
+        name            = "mgmt"
+        create_time     = "2026-01-01T00:00:00Z"
+        labels          = {}
+      }]
+    }
+  }
+
+  assert {
+    condition     = output.project_number == "333333333333"
+    error_message = "The project number must come from the google_projects record."
+  }
+  assert {
+    condition     = startswith(google_service_account_iam_member.impersonation["111122223333|arn:aws:iam::111122223333:role/AWSConfigThirdPartyCloudFederationRole"].member, "principalSet://iam.googleapis.com/projects/333333333333/")
+    error_message = "The principalSet path must use the project number from the google_projects record."
+  }
+}
+
+run "outputs" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  assert {
+    condition     = output.custom_roles.vm_deployer == null && output.custom_roles.vm_orchestrator == null && output.service_agents.organization.osconfig_rollout == null && output.service_agents.pubsub == null
+    error_message = "Roles and agents that the module does not create must be null."
+  }
+  assert {
+    condition     = output.accounts["111122223333"].inspector_pull_sink_writer_identity == null
+    error_message = "Without Inspector the image-pull sink writer identity must be null."
+  }
+}
+
+run "kms_key" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    pubsub_kms_key_name = "projects/kms-project/locations/us/keyRings/ring/cryptoKeys/key"
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  assert {
+    condition = alltrue([
+      google_pubsub_topic.lifecycle["111122223333"].kms_key_name == "projects/kms-project/locations/us/keyRings/ring/cryptoKeys/key",
+      google_pubsub_topic.cai["111122223333"].kms_key_name == "projects/kms-project/locations/us/keyRings/ring/cryptoKeys/key",
+      google_pubsub_topic.inspector_pull["111122223333"].kms_key_name == "projects/kms-project/locations/us/keyRings/ring/cryptoKeys/key",
+    ])
+    error_message = "All three topics must use the key."
+  }
+  assert {
+    condition     = google_kms_crypto_key_iam_member.pubsub_agent[0].crypto_key_id == "projects/kms-project/locations/us/keyRings/ring/cryptoKeys/key" && google_kms_crypto_key_iam_member.pubsub_agent[0].role == "roles/cloudkms.cryptoKeyEncrypterDecrypter" && google_project_service_identity.pubsub[0].service == "pubsub.googleapis.com"
+    error_message = "The management project's Pub/Sub service agent must get encrypter/decrypter on the key."
+  }
+}
+
+run "rejects_invalid_kms_key" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    pubsub_kms_key_name = "key"
+  }
+
+  expect_failures = [var.pubsub_kms_key_name]
+}
+
+# Another configuration owns the audit configuration and already enables what
+# the connector needs.
+run "audit_unmanaged" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    manage_audit_config = false
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  override_data {
+    target = data.google_organization_iam_policy.organization
+    values = {
+      policy_data = "{\"auditConfigs\":[{\"service\":\"allServices\",\"auditLogConfigs\":[{\"logType\":\"DATA_WRITE\"}]},{\"service\":\"artifactregistry.googleapis.com\",\"auditLogConfigs\":[{\"logType\":\"DATA_READ\"}]}]}"
+    }
+  }
+
+  assert {
+    condition     = length(google_organization_iam_audit_config.all_services_write) == 0 && length(google_organization_iam_audit_config.artifactregistry_read) == 0
+    error_message = "With manage_audit_config = false the module must not create an audit configuration."
+  }
+}
+
+run "rejects_unmanaged_audit_missing_log_type" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    manage_audit_config = false
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  # allServices DATA_WRITE is on; Artifact Registry DATA_READ is not.
+  override_data {
+    target = data.google_organization_iam_policy.organization
+    values = {
+      policy_data = "{\"auditConfigs\":[{\"service\":\"allServices\",\"auditLogConfigs\":[{\"logType\":\"DATA_WRITE\"}]}]}"
+    }
+  }
+
+  expect_failures = [terraform_data.preflight]
 }

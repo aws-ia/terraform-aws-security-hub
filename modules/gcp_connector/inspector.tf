@@ -2,7 +2,7 @@
 # Amazon Inspector
 ##################################################
 # Per-account resources follow the account rollup (enable_inspector,
-# enable_inspector_vm). The two custom roles, the service agents, VM Manager in
+# enable_inspector_vm). The custom roles, the service agents, VM Manager in
 # the target projects and the Artifact Registry read audit log belong to the
 # organization or to a project, and are created once when any account needs
 # them.
@@ -23,40 +23,59 @@ locals {
   vm_targets = local.any_inspector_vm ? toset(var.target_project_ids) : toset([])
 
   inspector_function_source_role = "inspectorFunctionSourceReader"
-  inspector_vm_deployer_role     = "OSPolicySSMDeployer"
+  inspector_vm_orchestrator_role = "OSPolicySSMOrchestrator"
+  inspector_vm_deployer_role     = "OSPolicySSMTargetDeployer"
 
   inspector_function_source_permissions = ["cloudfunctions.functions.sourceCodeGet"]
 
-  inspector_vm_deployer_permissions = [
+  # Granted at the organization. For an ORGANIZATION-scope connector, AWS
+  # Systems Manager creates the scanner's OS policy orchestrator under the
+  # organization; for a connector with project targets it creates it in the
+  # management project. Both need osconfig.policyOrchestrators.* on the
+  # parent. The orchestrator then writes the OS policy assignments through the
+  # OS Config rollout service agent, not as this identity. Everything else
+  # here is read-only.
+  inspector_vm_orchestrator_permissions = [
     "cloudasset.assets.searchAllResources",
     "compute.instances.get",
     "compute.instances.list",
-    "compute.instances.setLabels",
-    "compute.instances.setMetadata",
     "compute.projects.get",
     "compute.regions.get",
     "compute.zoneOperations.get",
-    "iam.serviceAccounts.actAs",
     "osconfig.inventories.get",
     "osconfig.inventories.list",
-    "osconfig.osPolicyAssignments.create",
-    "osconfig.osPolicyAssignments.update",
-    "osconfig.osPolicyAssignments.get",
-    "osconfig.osPolicyAssignments.list",
-    "osconfig.osPolicyAssignments.delete",
-    "osconfig.osPolicyAssignmentReports.list",
-    "osconfig.osPolicyAssignmentReports.get",
-    "osconfig.policyOrchestrators.create",
-    "osconfig.policyOrchestrators.update",
-    "osconfig.policyOrchestrators.get",
-    "osconfig.policyOrchestrators.list",
-    "osconfig.policyOrchestrators.delete",
     "osconfig.operations.get",
     "osconfig.operations.list",
+    "osconfig.osPolicyAssignmentReports.get",
+    "osconfig.osPolicyAssignmentReports.list",
+    "osconfig.osPolicyAssignments.get",
+    "osconfig.osPolicyAssignments.list",
+    "osconfig.policyOrchestrators.create",
+    "osconfig.policyOrchestrators.delete",
+    "osconfig.policyOrchestrators.get",
+    "osconfig.policyOrchestrators.list",
+    "osconfig.policyOrchestrators.update",
     "resourcemanager.projects.get",
     "serviceusage.services.get",
     "serviceusage.services.list",
   ]
+
+  # Granted only in each target project. These permissions change VMs:
+  # metadata (including startup scripts), labels, OS policy assignments, and
+  # acting as the VM's service account.
+  inspector_vm_deployer_permissions = [
+    "compute.instances.setLabels",
+    "compute.instances.setMetadata",
+    "iam.serviceAccounts.actAs",
+    "osconfig.osPolicyAssignments.create",
+    "osconfig.osPolicyAssignments.delete",
+    "osconfig.osPolicyAssignments.update",
+  ]
+
+  target_vm_deployer_grants = {
+    for pair in setproduct(tolist(local.vm_targets), keys(local.inspector_vm_accounts)) :
+    "${pair[0]}|${pair[1]}" => { project = pair[0], account = pair[1] }
+  }
 
   # Container image pulls from Artifact Registry, without the pulls that Google
   # scanning agents and the connector service accounts make.
@@ -64,6 +83,10 @@ locals {
     logName:"cloudaudit.googleapis.com%2Fdata_access" AND protoPayload.serviceName="artifactregistry.googleapis.com" AND protoPayload.methodName="Docker-GetManifest" AND (protoPayload.authenticationInfo.principalEmail:* OR protoPayload.authenticationInfo.principalSubject:*) AND NOT (protoPayload.authenticationInfo.principalEmail:"@container-analysis.iam.gserviceaccount.com" OR protoPayload.authenticationInfo.principalEmail:"@gcp-sa-artifactregistry.iam.gserviceaccount.com" OR protoPayload.authenticationInfo.principalEmail:"@gcp-sa-containerscanning.iam.gserviceaccount.com" OR protoPayload.authenticationInfo.principalEmail:"@gcp-sa-ondemandscanning.iam.gserviceaccount.com" OR protoPayload.authenticationInfo.principalEmail:"@gcp-sa-containersec.iam.gserviceaccount.com" OR protoPayload.authenticationInfo.principalEmail=~"^config-sa-[0-9]+@")
   EOT
   )
+
+  # Services whose service identity the orchestrator needs. Generating the
+  # osconfig identity also creates the gcp-sa-osconfig-rollout agent.
+  orchestrator_services = ["osconfig.googleapis.com", "progressiverollout.googleapis.com"]
 
   # Orchestrator service agent roles, keyed by the gcp-sa-<agent> token of the
   # agent's email.
@@ -73,9 +96,21 @@ locals {
     "progrollout"      = "roles/progressiverollout.serviceAgent"
   }
 
+  # The service identity resource that returns each agent. The rollout agent
+  # has no resource of its own, so its email is built from the same parent.
+  orchestrator_agent_service = {
+    "osconfig"    = "osconfig.googleapis.com"
+    "progrollout" = "progressiverollout.googleapis.com"
+  }
+
   target_orchestrator_bindings = {
     for pair in setproduct(tolist(local.vm_targets), keys(local.orchestrator_agent_roles)) :
     "${pair[0]}:${pair[1]}" => { project = pair[0], agent = pair[1], role = local.orchestrator_agent_roles[pair[1]] }
+  }
+
+  target_agent_identities = {
+    for pair in setproduct(tolist(local.vm_targets), local.orchestrator_services) :
+    "${pair[0]}:${pair[1]}" => { project = pair[0], service = pair[1] }
   }
 
   target_vm_apis = {
@@ -104,13 +139,28 @@ resource "google_organization_iam_custom_role" "function_source" {
   depends_on = [terraform_data.preflight]
 }
 
+resource "google_organization_iam_custom_role" "vm_orchestrator" {
+  count = local.any_inspector_vm ? 1 : 0
+
+  org_id      = local.org
+  role_id     = local.inspector_vm_orchestrator_role
+  title       = "OS Policy SSM Orchestrator"
+  description = "Manage OS policy orchestrators and read VM, inventory and OS policy state for Amazon Inspector VM scanning."
+  stage       = "GA"
+  permissions = local.inspector_vm_orchestrator_permissions
+
+  depends_on = [terraform_data.preflight]
+}
+
+# Defined at the organization so that one definition serves every target
+# project. It is granted only at project level.
 resource "google_organization_iam_custom_role" "vm_deployer" {
   count = local.any_inspector_vm ? 1 : 0
 
   org_id      = local.org
   role_id     = local.inspector_vm_deployer_role
-  title       = "OS Policy SSM Deployer"
-  description = "Can manage VM metadata, read VM properties, and create/manage OS Policy assignments for SSM deployment"
+  title       = "OS Policy SSM Target Deployer"
+  description = "Set VM metadata and labels, act as the VM service account and manage OS policy assignments in an Amazon Inspector VM target project."
   stage       = "GA"
   permissions = local.inspector_vm_deployer_permissions
 
@@ -125,50 +175,31 @@ resource "google_organization_iam_member" "inspector_function_source" {
   member = "serviceAccount:${google_service_account.connector[each.key].email}"
 }
 
-resource "google_organization_iam_member" "vm_deployer" {
+resource "google_organization_iam_member" "vm_orchestrator" {
   for_each = local.inspector_vm_accounts
 
   org_id = local.org
-  role   = google_organization_iam_custom_role.vm_deployer[0].name
+  role   = google_organization_iam_custom_role.vm_orchestrator[0].name
   member = "serviceAccount:${google_service_account.connector[each.key].email}"
+}
+
+resource "google_project_iam_member" "vm_deployer" {
+  for_each = local.target_vm_deployer_grants
+
+  project = each.value.project
+  role    = google_organization_iam_custom_role.vm_deployer[0].name
+  member  = "serviceAccount:${google_service_account.connector[each.value.account].email}"
 }
 
 ##################################################
 # Organization service agents
 ##################################################
-# No provider resource creates an organization-scoped service identity, so
-# gcloud creates it. gcloud runs with the google provider's own access token,
-# so the active gcloud account cannot perform part of one apply. The token is
-# sensitive, so Terraform suppresses the command output; on failure run the
-# command by hand to see the gcloud error.
-#
-# The commands run under /bin/sh and use POSIX `set -eu` only.
-data "google_client_config" "current" {}
+resource "google_organization_service_identity" "orchestrator" {
+  provider = google-beta
+  for_each = local.any_inspector_vm ? toset(local.orchestrator_services) : toset([])
 
-resource "terraform_data" "org_service_agents" {
-  count = local.any_inspector_vm ? 1 : 0
-
-  triggers_replace = {
-    organization = local.org
-    project      = local.project
-  }
-
-  provisioner "local-exec" {
-    environment = {
-      CLOUDSDK_AUTH_ACCESS_TOKEN    = data.google_client_config.current.access_token
-      CLOUDSDK_CORE_DISABLE_PROMPTS = "1"
-    }
-    command = <<-EOT
-      set -eu
-      for svc in osconfig.googleapis.com progressiverollout.googleapis.com; do
-        gcloud beta services identity create \
-          --service="$svc" \
-          --organization="${local.org}" \
-          --billing-project="${local.project}" \
-          --quiet
-      done
-    EOT
-  }
+  organization = local.org
+  service      = each.value
 
   depends_on = [google_project_service.management_osconfig]
 }
@@ -178,9 +209,13 @@ resource "google_organization_iam_member" "org_orchestrator_agent" {
 
   org_id = local.org
   role   = each.value
-  member = "serviceAccount:service-org-${local.org}@gcp-sa-${each.key}.iam.gserviceaccount.com"
+  member = (
+    contains(keys(local.orchestrator_agent_service), each.key)
+    ? google_organization_service_identity.orchestrator[local.orchestrator_agent_service[each.key]].member
+    : "serviceAccount:service-org-${local.org}@gcp-sa-${each.key}.iam.gserviceaccount.com"
+  )
 
-  depends_on = [terraform_data.org_service_agents]
+  depends_on = [google_organization_service_identity.orchestrator]
 }
 
 ##################################################
@@ -189,12 +224,6 @@ resource "google_organization_iam_member" "org_orchestrator_agent" {
 # An organization-scoped OS policy orchestrator needs the organization service
 # agents and the service agents of each target project, so the module creates
 # both.
-data "google_project" "target" {
-  for_each = local.vm_targets
-
-  project_id = each.value
-}
-
 resource "google_project_service" "target_vm" {
   for_each = local.target_vm_apis
 
@@ -205,28 +234,12 @@ resource "google_project_service" "target_vm" {
   depends_on = [terraform_data.preflight]
 }
 
-resource "terraform_data" "target_service_agents" {
-  for_each = local.vm_targets
+resource "google_project_service_identity" "target_orchestrator" {
+  provider = google-beta
+  for_each = local.target_agent_identities
 
-  triggers_replace = {
-    project = each.value
-  }
-
-  provisioner "local-exec" {
-    environment = {
-      CLOUDSDK_AUTH_ACCESS_TOKEN    = data.google_client_config.current.access_token
-      CLOUDSDK_CORE_DISABLE_PROMPTS = "1"
-    }
-    command = <<-EOT
-      set -eu
-      for svc in osconfig.googleapis.com progressiverollout.googleapis.com; do
-        gcloud beta services identity create \
-          --service="$svc" \
-          --project="${each.value}" \
-          --quiet
-      done
-    EOT
-  }
+  project = each.value.project
+  service = each.value.service
 
   depends_on = [google_project_service.target_vm]
 }
@@ -236,9 +249,13 @@ resource "google_project_iam_member" "target_orchestrator_agent" {
 
   project = each.value.project
   role    = each.value.role
-  member  = "serviceAccount:service-${data.google_project.target[each.value.project].number}@gcp-sa-${each.value.agent}.iam.gserviceaccount.com"
+  member = (
+    contains(keys(local.orchestrator_agent_service), each.value.agent)
+    ? google_project_service_identity.target_orchestrator["${each.value.project}:${local.orchestrator_agent_service[each.value.agent]}"].member
+    : "serviceAccount:service-${local.project_numbers[each.value.project]}@gcp-sa-${each.value.agent}.iam.gserviceaccount.com"
+  )
 
-  depends_on = [terraform_data.target_service_agents]
+  depends_on = [google_project_service_identity.target_orchestrator]
 }
 
 # Sets this one metadata key and keeps the other project metadata.
@@ -253,7 +270,16 @@ resource "google_compute_project_metadata_item" "target_enable_osconfig" {
 }
 
 # No provider resource sets the OS Config project feature settings, so gcloud
-# sets the full VM Manager feature set.
+# sets the full VM Manager feature set. gcloud runs with the google provider's
+# own access token, so the active gcloud account cannot perform part of one
+# apply. The token is sensitive, so Terraform suppresses the command output;
+# on failure run the command by hand to see the gcloud error.
+#
+# The command runs under /bin/sh and uses POSIX `set -eu` only.
+data "google_client_config" "current" {
+  count = local.any_inspector_vm ? 1 : 0
+}
+
 resource "terraform_data" "target_vm_manager_full" {
   for_each = local.vm_targets
 
@@ -263,7 +289,7 @@ resource "terraform_data" "target_vm_manager_full" {
 
   provisioner "local-exec" {
     environment = {
-      CLOUDSDK_AUTH_ACCESS_TOKEN    = data.google_client_config.current.access_token
+      CLOUDSDK_AUTH_ACCESS_TOKEN    = data.google_client_config.current[0].access_token
       CLOUDSDK_CORE_DISABLE_PROMPTS = "1"
     }
     command = <<-EOT
@@ -282,12 +308,14 @@ resource "terraform_data" "target_vm_manager_full" {
 # Image-pull log sink
 ##################################################
 resource "google_pubsub_topic" "inspector_pull" {
+  #checkov:skip=CKV_GCP_83:A customer-managed key is optional. Set pubsub_kms_key_name to use one; the default is Google-managed encryption.
   for_each = local.inspector_accounts
 
-  project = local.project
-  name    = each.value.inspector_pull_topic
+  project      = local.project
+  name         = each.value.inspector_pull_topic
+  kms_key_name = var.pubsub_kms_key_name
 
-  depends_on = [google_project_service.management]
+  depends_on = [google_project_service.management, google_kms_crypto_key_iam_member.pubsub_agent]
 }
 
 resource "google_pubsub_subscription" "inspector_pull" {

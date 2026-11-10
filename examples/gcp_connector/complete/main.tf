@@ -19,8 +19,10 @@ provider "google-beta" {
 module "gcp_connector" {
   source = "../../../modules/gcp_connector"
 
-  organization_id    = var.organization_id
-  project_id         = var.project_id
-  onboarded_accounts = var.onboarded_accounts
-  target_project_ids = var.target_project_ids
+  manage_audit_config = var.manage_audit_config
+  onboarded_accounts  = var.onboarded_accounts
+  organization_id     = var.organization_id
+  project_id          = var.project_id
+  pubsub_kms_key_name = var.pubsub_kms_key_name
+  target_project_ids  = var.target_project_ids
 }

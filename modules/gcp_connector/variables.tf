@@ -1,6 +1,10 @@
-##################################################
-# Accounts
-##################################################
+variable "manage_audit_config" {
+  description = "Create and own the organization audit configuration that the connector needs: `allServices` `DATA_WRITE` and, with Inspector, `artifactregistry.googleapis.com` `DATA_READ`. Set `false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, the plan stops when a required log type is not enabled, and destroy leaves the audit configuration unchanged. In an existing deployment, run `terraform state rm` on the two `google_organization_iam_audit_config` resources before you change this to `false`, or the next apply removes them."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 variable "onboarded_accounts" {
   description = <<-EOF
   AWS account and Region pairs that read from this GCP organization.
@@ -9,7 +13,7 @@ variable "onboarded_accounts" {
   `issuer_url`          - The account's outbound identity federation issuer URL, `https://<id>.tokens.sts.global.api.aws`.
   `enable_cspm`         - Enable the CSPM pipeline. Defaults to `true`. The shared AWS Config resources are always created, so this module does not read it; accepted so every connector module takes the same list.
   `enable_inspector`    - Enable Amazon Inspector for this account and Region. Defaults to `false`. Adds Inspector federation, Cloud Functions source access, the image-pull log route and the Artifact Registry read audit log.
-  `enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role and grant it the OS policy deployer role. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.
+  `enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role, grant it the OS policy orchestrator role at the organization and the VM deployer role in each target project. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.
   An account can appear once per Region. Per-account resources are created once per account; Inspector is on for an account when any of its Regions enables it.
   EOF
 
@@ -60,9 +64,6 @@ variable "onboarded_accounts" {
   }
 }
 
-##################################################
-# GCP organization and projects
-##################################################
 variable "organization_id" {
   description = "Numeric ID of the GCP organization to onboard. The log sinks, Cloud Asset Inventory feeds, reader roles, custom roles and audit configuration are created at this organization."
   type        = string
@@ -71,6 +72,18 @@ variable "organization_id" {
   validation {
     condition     = can(regex("^[0-9]+$", var.organization_id))
     error_message = "organization_id must be numeric."
+  }
+}
+
+variable "permission_model" {
+  description = "Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service."
+  type        = string
+  default     = "broad"
+  nullable    = false
+
+  validation {
+    condition     = contains(["broad", "granular"], var.permission_model)
+    error_message = "permission_model must be broad or granular."
   }
 }
 
@@ -85,8 +98,19 @@ variable "project_id" {
   }
 }
 
+variable "pubsub_kms_key_name" {
+  description = "Optional Cloud KMS key for the lifecycle, Cloud Asset Inventory and image-pull topics, as `projects/<project>/locations/<location>/keyRings/<key ring>/cryptoKeys/<key>`. When set, the module grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. When `null`, the topics use Google-managed encryption."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.pubsub_kms_key_name == null || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.pubsub_kms_key_name))
+    error_message = "pubsub_kms_key_name must be a full Cloud KMS crypto key name: projects/<project>/locations/<location>/keyRings/<key ring>/cryptoKeys/<key>."
+  }
+}
+
 variable "target_project_ids" {
-  description = "Projects whose Compute Engine VMs Amazon Inspector scans. A nonempty list sets up VM scanning for every account that enables Inspector and `enable_inspector_vm`: VM scanning federation, the OS policy deployer role, the OS Config and Progressive Rollout service agents, and VM Manager in each project. Leave empty to skip VM scanning."
+  description = "Projects whose Compute Engine VMs Amazon Inspector scans. A nonempty list sets up VM scanning for every account that enables Inspector and `enable_inspector_vm`: VM scanning federation, the OS policy orchestrator role at the organization, the VM deployer role in each target project, the OS Config and Progressive Rollout service agents, and VM Manager in each project. The VM deployer role, which can set VM metadata and act as the VM service account, is granted only in these projects. Leave empty to skip VM scanning."
   type        = list(string)
   default     = []
   nullable    = false
@@ -106,20 +130,5 @@ variable "target_project_ids" {
   validation {
     condition     = length(var.target_project_ids) == 0 || anytrue([for a in var.onboarded_accounts : a.enable_inspector && a.enable_inspector_vm])
     error_message = "target_project_ids is nonempty but no onboarded account sets enable_inspector = true with enable_inspector_vm = true. VM scanning requires Amazon Inspector."
-  }
-}
-
-##################################################
-# Permissions
-##################################################
-variable "permission_model" {
-  description = "Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service."
-  type        = string
-  default     = "broad"
-  nullable    = false
-
-  validation {
-    condition     = contains(["broad", "granular"], var.permission_model)
-    error_message = "permission_model must be broad or granular."
   }
 }
