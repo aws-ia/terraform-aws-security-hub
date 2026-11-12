@@ -368,8 +368,8 @@ run "vm_scanning" {
     error_message = "VM scanning must trust the account's Inspector2SSMFederationRole-<organization> as the last subject."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com", "api://AWSTokenExchange"])
-    error_message = "VM scanning must also allow the api://AWSTokenExchange audience."
+    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
+    error_message = "VM scanning must allow only the STS audience, not the retired api://AWSTokenExchange."
   }
 }
 
@@ -411,7 +411,7 @@ run "vm_trust_per_account" {
   }
   assert {
     condition     = google_iam_workload_identity_pool_provider.connector["444455556666"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
-    error_message = "An account without VM scanning must not allow api://AWSTokenExchange."
+    error_message = "An account without VM scanning must allow only the STS audience."
   }
   assert {
     condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]

@@ -101,12 +101,11 @@ locals {
     "attribute.aws_role in [${join(", ", [for s in subs : "'${s}'"])}]"
   }
 
-  # STS always. VM scanning also exchanges tokens for api://AWSTokenExchange.
+  # Every caller, including AWS Systems Manager for VM scanning, requests the
+  # STS audience. SSM no longer requests api://AWSTokenExchange, so it is not
+  # allowed.
   provider_audiences = {
-    for id, f in local.account_flags : id => concat(
-      ["https://sts.googleapis.com"],
-      f.enable_inspector_vm ? ["api://AWSTokenExchange"] : [],
-    )
+    for id, f in local.account_flags : id => ["https://sts.googleapis.com"]
   }
 
   principal_prefix = {
