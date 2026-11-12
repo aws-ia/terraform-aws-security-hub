@@ -8,6 +8,11 @@ output "custom_roles" {
   value       = module.gcp_connector.custom_roles
 }
 
+output "inspector_vm_bridge" {
+  description = "Amazon Inspector VM credential bridge pool, provider, audience and minter emails of each account with VM scanning."
+  value       = module.gcp_connector.inspector_vm_bridge
+}
+
 output "per_account_connector_inputs" {
   description = "Connector inputs for each onboarded account and Region."
   value       = module.gcp_connector.per_account_connector_inputs

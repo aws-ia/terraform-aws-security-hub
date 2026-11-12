@@ -12,6 +12,7 @@ Creates the Google Cloud resources that let AWS Config and Amazon Inspector read
 | Organization | any `enable_inspector` | `inspectorFunctionSourceReader` custom role, Artifact Registry `DATA_READ` audit log (unless `manage_audit_config = false`) |
 | Per AWS account | `enable_inspector`, `enable_inspector_vm` and `target_project_ids` | VM scanning federation subject and audience, `OSPolicySSMOrchestrator` grant at the organization, `OSPolicySSMProjectOrchestrator` grant in the management project (with `vm_orchestrator_parent = "project"`), `OSPolicySSMTargetDeployer` grant in each target project |
 | Organization and each target project | VM scanning for any account | `OSPolicySSMOrchestrator`, `OSPolicySSMTargetDeployer` and, with `vm_orchestrator_parent = "project"`, `OSPolicySSMProjectOrchestrator` custom roles, OS Config and Progressive Rollout service agents and their roles, `enable-osconfig` project metadata, VM Manager `full` feature set |
+| Per AWS account and each target project | VM scanning and `enable_inspector_vm_bridge` (default `true`) | Amazon Inspector VM credential bridge: workload identity pool `inspector-vm-bridge-<account>` and OIDC provider `compute-engine-vm` in the management project, minter service account `inspector-vmscan-<account>` and its token creator binding in each target project, IAM and IAM Credentials APIs in each target project |
 | Management project | `pubsub_kms_key_name` | Pub/Sub service agent and its `roles/cloudkms.cryptoKeyEncrypterDecrypter` grant on the key |
 
 The connector finds its resources by name and by the `aws-config-discovery=<account>-<region>-<management project>` label, so the module uses fixed name templates such as `connector-pool-<account>` and `config-sa-<account>`.
@@ -86,6 +87,27 @@ Choose `vm_orchestrator_parent` by the connector's scope:
 
 `organization` (the default) works for every scope. `project` keeps orchestrator writes out of the organization, but if the connector later changes to ORGANIZATION scope with no project targets, Systems Manager cannot create the orchestrator until you set `organization` and apply.
 
+## VM credential bridge
+
+The Amazon Inspector VM scanner on a GCP VM gets AWS credentials through the bridge, with no stored key:
+
+1. The scanner gets a Compute Engine VM identity token for the audience `https://iam.googleapis.com/projects/<management project number>/locations/global/workloadIdentityPools/inspector-vm-bridge-<account>/providers/compute-engine-vm` and exchanges it at Google STS in the bridge pool.
+2. As that federated identity, it calls `generateIdToken` on its own project's minter, `inspector-vmscan-<account>@<project>.iam.gserviceaccount.com`. A VM token has no organization claim; the minter token adds one.
+3. It presents the minter token to AWS STS for `Inspector2VmScannerRole-<organization>`.
+
+For each account with VM scanning, the module creates:
+
+- In the management project: the pool `inspector-vm-bridge-<account>` and the provider `compute-engine-vm`. The provider trusts only `https://accounts.google.com` with exactly the audience above, maps `project_id`, `project_number`, `instance_id` and `sa_email` from the VM token, and admits only VM tokens from the `target_project_ids` projects (`attribute.project_number in [...] && attribute.instance_id != ''`). Over 4096 characters, about 250 projects, the condition admits any Compute Engine VM token instead; each minter binding still admits only its own project's VMs.
+- In each target project: the minter service account `inspector-vmscan-<account>` with no roles and no keys, and one `roles/iam.serviceAccountOpenIdTokenCreator` binding on it for `principalSet://iam.googleapis.com/projects/<management project number>/locations/global/workloadIdentityPools/inspector-vm-bridge-<account>/attribute.project_id/<project>`, with no condition.
+
+The Inspector VM scanner derives these names, so the module uses fixed names. Amazon Inspector owns the AWS side: the role `Inspector2VmScannerRole-<organization>` and its trust statement `AllowBridgeMinter`, which trusts `accounts.google.com` tokens with `oaud` `api://AWSInspector`, a minter email `inspector-vmscan-<account>@*.iam.gserviceaccount.com` and the organization number. This module creates nothing in AWS.
+
+Terraform owns the provider condition exactly. The setup script adds project numbers to the condition across runs; this module lists only `target_project_ids`, so an apply removes a project that only the script set up, and that project's VMs then cannot get credentials. Add every project to `target_project_ids` before you import or replace a script-created bridge.
+
+Set `enable_inspector_vm_bridge = false` only when you do not use VM scanning credentials. On an existing deployment it destroys the pool, the provider, the minters and their bindings. A destroyed pool stays soft-deleted for about 30 days and keeps its ID reserved, so creating it again fails until you undelete it.
+
+The module grants no other binding on a minter and does not check for user-managed keys. Do not create keys for a minter.
+
 ## Encryption
 
 The lifecycle, Cloud Asset Inventory and image-pull topics use Google-managed encryption. Set `pubsub_kms_key_name` to use a Cloud KMS key instead. The module then grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key before it creates the topics.
@@ -123,8 +145,9 @@ Destroying the module removes everything it created, including resources that ot
 - The `allServices` and `artifactregistry.googleapis.com` audit configurations, including log types and exemptions that existed before. To keep them, set `manage_audit_config = false` before the first apply. In an existing deployment, first run `terraform state rm` on `google_organization_iam_audit_config.all_services_write` and `google_organization_iam_audit_config.artifactregistry_read`; changing the input alone removes them on the next apply.
 - The `inspectorFunctionSourceReader`, `OSPolicySSMOrchestrator` and `OSPolicySSMTargetDeployer` custom roles. A deleted custom role keeps its role ID reserved, so creating it again fails until you undelete the role or GCP completes the deletion.
 - The `enable-osconfig` metadata item, which turns off the OS Config agent for every VM in the target projects.
+- The VM credential bridge pool, provider, minter service accounts and bindings, which stops VM scanning credentials.
 
-A destroyed workload identity pool stays soft-deleted for 30 days and blocks a new pool with the same name until you undelete it. Service identities cannot be destroyed, so they stay. The VM Manager feature set that `gcloud` sets is not changed back.
+A destroyed workload identity pool, connector or bridge, stays soft-deleted for 30 days and blocks a new pool with the same name until you undelete it. Service identities cannot be destroyed, so they stay. The VM Manager feature set that `gcloud` sets is not changed back.
 
 ### Requirements
 
@@ -156,7 +179,9 @@ No modules.
 | [google-beta_google_project_service_identity.target_orchestrator](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
 | [google_cloud_asset_organization_feed.cai](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_asset_organization_feed) | resource |
 | [google_compute_project_metadata_item.target_enable_osconfig](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/compute_project_metadata_item) | resource |
+| [google_iam_workload_identity_pool.bridge](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool) | resource |
 | [google_iam_workload_identity_pool.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool) | resource |
+| [google_iam_workload_identity_pool_provider.bridge](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool_provider) | resource |
 | [google_iam_workload_identity_pool_provider.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/iam_workload_identity_pool_provider) | resource |
 | [google_kms_crypto_key_iam_member.pubsub_agent](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/kms_crypto_key_iam_member) | resource |
 | [google_logging_organization_sink.inspector_pull](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/logging_organization_sink) | resource |
@@ -191,7 +216,9 @@ No modules.
 | [google_pubsub_topic_iam_member.inspector_pull_writer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_member) | resource |
 | [google_pubsub_topic_iam_member.lifecycle_writer](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic_iam_member) | resource |
 | [google_service_account.connector](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
+| [google_service_account.minter](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_iam_member.impersonation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
+| [google_service_account_iam_member.minter_token_creator](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
 | [terraform_data.preflight](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [terraform_data.target_vm_manager_full](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [google_client_config.current](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/client_config) | data source |
@@ -206,6 +233,7 @@ No modules.
 | <a name="input_onboarded_accounts"></a> [onboarded\_accounts](#input\_onboarded\_accounts) | AWS account and Region pairs that read from this GCP organization.<br/>`aws_account_id`      - 12-digit AWS account ID. Names the workload identity pool and provider, the service account, the log sinks, the Cloud Asset Inventory feed and the topics.<br/>`aws_region`          - AWS Region of the connector, for example `us-east-1`. Names the Pub/Sub subscriptions and forms their discovery label.<br/>`issuer_url`          - The account's outbound identity federation issuer URL, `https://<id>.tokens.sts.global.api.aws`.<br/>`enable_cspm`         - Enable the CSPM pipeline. Defaults to `true`. The shared AWS Config resources are always created, so this module does not read it; accepted so every connector module takes the same list.<br/>`enable_inspector`    - Enable Amazon Inspector for this account and Region. Defaults to `false`. Adds Inspector federation, Cloud Functions source access, the image-pull log route and the Artifact Registry read audit log.<br/>`enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role, grant it the OS policy orchestrator role at the organization and the VM deployer role in each target project. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.<br/>An account can appear once per Region. Per-account resources are created once per account; Inspector is on for an account when any of its Regions enables it. | <pre>list(object({<br/>    aws_account_id      = string<br/>    aws_region          = string<br/>    issuer_url          = string<br/>    enable_cspm         = optional(bool, true)<br/>    enable_inspector    = optional(bool, false)<br/>    enable_inspector_vm = optional(bool, true)<br/>  }))</pre> | n/a | yes |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | Numeric ID of the GCP organization to onboard. The log sinks, Cloud Asset Inventory feeds, reader roles, custom roles and audit configuration are created at this organization. | `string` | n/a | yes |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | ID of the GCP management project. It holds the service accounts, workload identity pools, topics and subscriptions, and must be in `organization_id`. Configure it as the provider's billing project. | `string` | n/a | yes |
+| <a name="input_enable_inspector_vm_bridge"></a> [enable\_inspector\_vm\_bridge](#input\_enable\_inspector\_vm\_bridge) | Create the Amazon Inspector VM credential bridge for every account with VM scanning: a workload identity pool `inspector-vm-bridge-<account>` with the OIDC provider `compute-engine-vm` in the management project, and a minter service account `inspector-vmscan-<account>` in each target project. The Inspector VM scanner uses it to get AWS credentials. The module owns the provider condition: it admits exactly the `target_project_ids` projects. Setting `false` destroys the bridge, and VM scanning then cannot get AWS credentials. | `bool` | `true` | no |
 | <a name="input_manage_audit_config"></a> [manage\_audit\_config](#input\_manage\_audit\_config) | Create and own the organization audit configuration that the connector needs: `allServices` `DATA_WRITE` and, with Inspector, `artifactregistry.googleapis.com` `DATA_READ`. Set `false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, the plan stops when a required log type is not enabled, and destroy leaves the audit configuration unchanged. In an existing deployment, run `terraform state rm` on the two `google_organization_iam_audit_config` resources before you change this to `false`, or the next apply removes them. | `bool` | `true` | no |
 | <a name="input_permission_model"></a> [permission\_model](#input\_permission\_model) | Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service. | `string` | `"broad"` | no |
 | <a name="input_pubsub_kms_key_name"></a> [pubsub\_kms\_key\_name](#input\_pubsub\_kms\_key\_name) | Optional Cloud KMS key for the lifecycle, Cloud Asset Inventory and image-pull topics, as `projects/<project>/locations/<location>/keyRings/<key ring>/cryptoKeys/<key>`. When set, the module grants the management project's Pub/Sub service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key. When `null`, the topics use Google-managed encryption. | `string` | `null` | no |
@@ -219,6 +247,7 @@ No modules.
 | <a name="output_accounts"></a> [accounts](#output\_accounts) | Per-account resources, keyed by AWS account ID. `workload_identity_audience` is the exact audience for the token exchange. The sink writer identities are the principals that publish to the topics. |
 | <a name="output_custom_roles"></a> [custom\_roles](#output\_custom\_roles) | Names of the custom roles that the module creates, or null for a role that it does not create. |
 | <a name="output_federation_subjects"></a> [federation\_subjects](#output\_federation\_subjects) | AWS IAM role ARNs that each account's workload identity provider trusts, keyed by AWS account ID. |
+| <a name="output_inspector_vm_bridge"></a> [inspector\_vm\_bridge](#output\_inspector\_vm\_bridge) | Amazon Inspector VM credential bridge of each account with VM scanning, keyed by AWS account ID: the workload identity pool and provider, the exact audience of the VM identity token, and the minter service account email per target project. Empty when no account has VM scanning or `enable_inspector_vm_bridge` is false. |
 | <a name="output_organization_id"></a> [organization\_id](#output\_organization\_id) | GCP organization ID. |
 | <a name="output_per_account_connector_inputs"></a> [per\_account\_connector\_inputs](#output\_per\_account\_connector\_inputs) | Values each onboarded account needs to create its connector, keyed `<aws account>-<aws region>`. |
 | <a name="output_project_id"></a> [project\_id](#output\_project\_id) | GCP management project ID. |

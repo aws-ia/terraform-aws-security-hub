@@ -1,3 +1,9 @@
+variable "enable_inspector_vm_bridge" {
+  description = "Create the Amazon Inspector VM credential bridge for accounts with VM scanning. Setting false destroys it."
+  type        = bool
+  default     = true
+}
+
 variable "manage_audit_config" {
   description = "Create and own the organization audit configuration. Set false when another configuration owns it."
   type        = bool
