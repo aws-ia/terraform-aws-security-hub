@@ -368,8 +368,8 @@ run "vm_scanning" {
     error_message = "VM scanning must trust the account's Inspector2SSMFederationRole-<organization> as the last subject."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com", "api://AWSTokenExchange"])
-    error_message = "VM scanning must also allow the api://AWSTokenExchange audience."
+    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
+    error_message = "VM scanning must allow only the Google STS audience."
   }
 }
 
@@ -383,7 +383,8 @@ run "vm_trust_per_account" {
   command = plan
 
   variables {
-    target_project_ids = ["target-project-1"]
+    enable_inspector_vm_bridge = true
+    target_project_ids         = ["target-project-1"]
     onboarded_accounts = [
       {
         aws_account_id   = "111122223333"
@@ -411,7 +412,15 @@ run "vm_trust_per_account" {
   }
   assert {
     condition     = google_iam_workload_identity_pool_provider.connector["444455556666"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
-    error_message = "An account without VM scanning must not allow api://AWSTokenExchange."
+    error_message = "An account without VM scanning must allow only the STS audience."
+  }
+  assert {
+    condition     = keys(google_iam_workload_identity_pool.bridge) == ["111122223333"]
+    error_message = "Only the account that opts into VM scanning may get a credential bridge."
+  }
+  assert {
+    condition     = keys(google_service_account.minter) == ["target-project-1|111122223333"]
+    error_message = "A non-VM-scanning account must not get a minter service account."
   }
   assert {
     condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]
@@ -857,4 +866,202 @@ run "rejects_invalid_vm_orchestrator_parent" {
   }
 
   expect_failures = [var.vm_orchestrator_parent]
+}
+
+# The Inspector VM credential bridge, with two target projects whose numbers
+# are listed out of order.
+run "vm_bridge" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    enable_inspector_vm_bridge = true
+    target_project_ids         = ["target-project-1", "target-project-2"]
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  override_data {
+    target = data.google_projects.checked["target-project-2"]
+    values = {
+      projects = [{
+        project_id      = "target-project-2"
+        number          = "100000000000"
+        lifecycle_state = "ACTIVE"
+        parent          = { type = "organization", id = "123456789" }
+        name            = "target2"
+        create_time     = "2026-01-01T00:00:00Z"
+        labels          = {}
+      }]
+    }
+  }
+
+  assert {
+    condition     = google_iam_workload_identity_pool.bridge["111122223333"].workload_identity_pool_id == "inspector-vm-bridge-111122223333" && length(google_iam_workload_identity_pool.bridge["111122223333"].workload_identity_pool_id) <= 32 && google_iam_workload_identity_pool.bridge["111122223333"].project == "mgmt-project-1" && length(google_iam_workload_identity_pool.bridge["111122223333"].display_name) <= 32
+    error_message = "The bridge pool must be inspector-vm-bridge-<account> in the management project, with pool and display names of at most 32 characters."
+  }
+  assert {
+    condition = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_mapping == tomap({
+      "google.subject"           = "assertion.sub"
+      "attribute.project_id"     = "assertion.google.compute_engine.project_id"
+      "attribute.project_number" = "string(int(assertion.google.compute_engine.project_number))"
+      "attribute.instance_id"    = "assertion.google.compute_engine.instance_id"
+      "attribute.sa_email"       = "assertion.email"
+    })
+    error_message = "The bridge provider must have exactly the five required Compute Engine identity-token attribute mappings."
+  }
+  assert {
+    condition     = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_condition == "attribute.project_number in ['100000000000', '222222222222'] && attribute.instance_id != ''"
+    error_message = "The bridge condition must list the target project numbers sorted and quoted, and require an instance ID."
+  }
+  assert {
+    condition     = google_iam_workload_identity_pool_provider.bridge["111122223333"].workload_identity_pool_provider_id == "compute-engine-vm" && google_iam_workload_identity_pool_provider.bridge["111122223333"].oidc[0].issuer_uri == "https://accounts.google.com" && google_iam_workload_identity_pool_provider.bridge["111122223333"].oidc[0].allowed_audiences == tolist(["https://iam.googleapis.com/projects/111111111111/locations/global/workloadIdentityPools/inspector-vm-bridge-111122223333/providers/compute-engine-vm"])
+    error_message = "The bridge provider must be compute-engine-vm, trust only accounts.google.com, and allow exactly its own full audience with the management project number."
+  }
+  assert {
+    condition     = output.inspector_vm_bridge["111122223333"].audience == "https://iam.googleapis.com/projects/111111111111/locations/global/workloadIdentityPools/inspector-vm-bridge-111122223333/providers/compute-engine-vm"
+    error_message = "The bridge audience output must equal the provider's allowed audience."
+  }
+  assert {
+    condition     = !output.inspector_vm_bridge["111122223333"].uses_any_vm_fallback
+    error_message = "A bounded target list must report that it does not use the any-VM fallback."
+  }
+  assert {
+    condition     = toset(keys(google_service_account.minter)) == toset(["target-project-1|111122223333", "target-project-2|111122223333"]) && google_service_account.minter["target-project-1|111122223333"].project == "target-project-1" && google_service_account.minter["target-project-1|111122223333"].account_id == "inspector-vmscan-111122223333"
+    error_message = "Each target project must get its own minter inspector-vmscan-<account>, in that project."
+  }
+  assert {
+    condition     = google_service_account_iam_member.minter_token_creator["target-project-2|111122223333"].member == "principalSet://iam.googleapis.com/projects/111111111111/locations/global/workloadIdentityPools/inspector-vm-bridge-111122223333/attribute.project_id/target-project-2" && google_service_account_iam_member.minter_token_creator["target-project-2|111122223333"].role == "roles/iam.serviceAccountOpenIdTokenCreator"
+    error_message = "The minter binding must grant token creator to the bridge principal set of its own project, with the management project number."
+  }
+  assert {
+    condition     = alltrue([for b in google_service_account_iam_member.minter_token_creator : length(b.condition) == 0])
+    error_message = "The minter bindings must have no IAM condition."
+  }
+  assert {
+    condition     = contains(keys(google_project_service.target_vm), "target-project-2:iam.googleapis.com") && contains(keys(google_project_service.target_vm), "target-project-2:iamcredentials.googleapis.com")
+    error_message = "The bridge must enable IAM and IAM Credentials in each target project."
+  }
+}
+
+# Over 4096 characters the condition admits any Compute Engine VM token.
+run "vm_bridge_condition_fallback" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    enable_inspector_vm_bridge = true
+    target_project_ids         = [for i in range(260) : format("target-project-%03d", i)]
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  override_data {
+    target = data.google_projects.checked
+    values = {
+      # The management project and target-project-000 to target-project-259.
+      # Override values cannot call functions, so the suffixes are listed.
+      projects = [for i in [
+        "mgmt",
+        "000", "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012",
+        "013", "014", "015", "016", "017", "018", "019", "020", "021", "022", "023", "024", "025",
+        "026", "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038",
+        "039", "040", "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051",
+        "052", "053", "054", "055", "056", "057", "058", "059", "060", "061", "062", "063", "064",
+        "065", "066", "067", "068", "069", "070", "071", "072", "073", "074", "075", "076", "077",
+        "078", "079", "080", "081", "082", "083", "084", "085", "086", "087", "088", "089", "090",
+        "091", "092", "093", "094", "095", "096", "097", "098", "099", "100", "101", "102", "103",
+        "104", "105", "106", "107", "108", "109", "110", "111", "112", "113", "114", "115", "116",
+        "117", "118", "119", "120", "121", "122", "123", "124", "125", "126", "127", "128", "129",
+        "130", "131", "132", "133", "134", "135", "136", "137", "138", "139", "140", "141", "142",
+        "143", "144", "145", "146", "147", "148", "149", "150", "151", "152", "153", "154", "155",
+        "156", "157", "158", "159", "160", "161", "162", "163", "164", "165", "166", "167", "168",
+        "169", "170", "171", "172", "173", "174", "175", "176", "177", "178", "179", "180", "181",
+        "182", "183", "184", "185", "186", "187", "188", "189", "190", "191", "192", "193", "194",
+        "195", "196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "206", "207",
+        "208", "209", "210", "211", "212", "213", "214", "215", "216", "217", "218", "219", "220",
+        "221", "222", "223", "224", "225", "226", "227", "228", "229", "230", "231", "232", "233",
+        "234", "235", "236", "237", "238", "239", "240", "241", "242", "243", "244", "245", "246",
+        "247", "248", "249", "250", "251", "252", "253", "254", "255", "256", "257", "258", "259",
+        ] : {
+        project_id      = i == "mgmt" ? "mgmt-project-1" : "target-project-${i}"
+        number          = i == "mgmt" ? "111111111111" : "300000000${i}"
+        lifecycle_state = "ACTIVE"
+        parent          = { type = "organization", id = "123456789" }
+        name            = "project"
+        create_time     = "2026-01-01T00:00:00Z"
+        labels          = {}
+      }]
+    }
+  }
+
+  assert {
+    condition     = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_condition == "attribute.project_number != '' && attribute.instance_id != ''"
+    error_message = "A project list over 4096 characters must use the any-VM fallback condition."
+  }
+  assert {
+    condition     = output.inspector_vm_bridge["111122223333"].uses_any_vm_fallback
+    error_message = "The bridge output must report when the provider uses the any-VM fallback."
+  }
+}
+
+run "vm_bridge_off" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    enable_inspector_vm_bridge = false
+    target_project_ids         = ["target-project-1"]
+    onboarded_accounts = [{
+      aws_account_id   = "111122223333"
+      aws_region       = "us-east-1"
+      issuer_url       = "https://00000000-0000-4000-8000-000000000001.tokens.sts.global.api.aws"
+      enable_inspector = true
+    }]
+  }
+
+  assert {
+    condition     = length(google_iam_workload_identity_pool.bridge) == 0 && length(google_iam_workload_identity_pool_provider.bridge) == 0 && length(google_service_account.minter) == 0 && length(google_service_account_iam_member.minter_token_creator) == 0 && output.inspector_vm_bridge == {}
+    error_message = "With enable_inspector_vm_bridge = false the module must not create the bridge."
+  }
+  assert {
+    condition     = !contains(keys(google_project_service.target_vm), "target-project-1:iamcredentials.googleapis.com") && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]
+    error_message = "Without the bridge VM scanning must not change and must not enable IAM Credentials in the target project."
+  }
+}
+
+# accounts[*].cai_feed is the configured feed name because imported feed_id
+# can remain null. The output block explicitly depends on the feed resources.
+run "cai_feed_output" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  assert {
+    condition     = output.accounts["111122223333"].cai_feed == "config-cai-feed-111122223333"
+    error_message = "accounts[*].cai_feed must use the configured feed name."
+  }
+  assert {
+    condition     = length(google_iam_workload_identity_pool.bridge) == 0 && output.inspector_vm_bridge == {}
+    error_message = "Without VM scanning the module must not create the bridge."
+  }
 }

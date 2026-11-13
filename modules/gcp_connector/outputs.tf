@@ -2,7 +2,7 @@ output "accounts" {
   description = "Per-account resources, keyed by AWS account ID. `workload_identity_audience` is the exact audience for the token exchange. The sink writer identities are the principals that publish to the topics."
   value = {
     for id, n in local.account_names : id => {
-      cai_feed                            = google_cloud_asset_organization_feed.cai[id].feed_id
+      cai_feed                            = n.feed
       cai_topic                           = google_pubsub_topic.cai[id].name
       inspector_pull_sink_writer_identity = try(google_logging_organization_sink.inspector_pull[id].writer_identity, null)
       inspector_pull_topic                = try(google_pubsub_topic.inspector_pull[id].name, null)
@@ -14,6 +14,8 @@ output "accounts" {
       workload_identity_pool_provider     = google_iam_workload_identity_pool_provider.connector[id].name
     }
   }
+
+  depends_on = [google_cloud_asset_organization_feed.cai]
 }
 
 output "custom_roles" {
@@ -29,6 +31,21 @@ output "custom_roles" {
 output "federation_subjects" {
   description = "AWS IAM role ARNs that each account's workload identity provider trusts, keyed by AWS account ID."
   value       = local.federation_subjects
+}
+
+output "inspector_vm_bridge" {
+  description = "Amazon Inspector VM credential bridge of each account with VM scanning, keyed by AWS account ID: the workload identity pool and provider, the exact audience of the VM identity token, whether the provider uses the any-VM fallback condition, and the minter service account email per target project. Empty when no account has VM scanning or `enable_inspector_vm_bridge` is false."
+  value = {
+    for id, n in local.bridge_names : id => {
+      audience             = local.bridge_audiences[id]
+      uses_any_vm_fallback = local.bridge_condition == local.bridge_condition_fallback
+      minter_emails = {
+        for k, m in local.bridge_minters : m.project => google_service_account.minter[k].email if m.account == id
+      }
+      workload_identity_pool          = google_iam_workload_identity_pool.bridge[id].name
+      workload_identity_pool_provider = google_iam_workload_identity_pool_provider.bridge[id].name
+    }
+  }
 }
 
 output "organization_id" {

@@ -1,3 +1,10 @@
+variable "enable_inspector_vm_bridge" {
+  description = "Create the Amazon Inspector VM credential bridge for every account with VM scanning: a workload identity pool `inspector-vm-bridge-<account>` with the OIDC provider `compute-engine-vm` in the management project, and a minter service account `inspector-vmscan-<account>` in each target project. The Inspector VM scanner uses it to get AWS credentials. The module owns the provider condition: it admits exactly the `target_project_ids` projects. This is opt-in so upgrading an existing deployment cannot collide with a bridge created by another onboarding workflow. Import every existing bridge resource before setting this to true. Setting it back to false destroys the bridge, and VM scanning then cannot get AWS credentials."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "manage_audit_config" {
   description = "Create and own the organization audit configuration that the connector needs: `allServices` `DATA_WRITE` and, with Inspector, `artifactregistry.googleapis.com` `DATA_READ`. Set `false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, the plan stops when a required log type is not enabled, and destroy leaves the audit configuration unchanged. In an existing deployment, run `terraform state rm` on the two `google_organization_iam_audit_config` resources before you change this to `false`, or the next apply removes them."
   type        = bool
