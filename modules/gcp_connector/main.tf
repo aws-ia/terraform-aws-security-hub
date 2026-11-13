@@ -101,11 +101,14 @@ locals {
     "attribute.aws_role in [${join(", ", [for s in subs : "'${s}'"])}]"
   }
 
-  # STS always. VM scanning also exchanges tokens for api://AWSTokenExchange.
+  # AWS Config and Inspector request the STS audience. AWS Systems Manager is
+  # migrating from api://AWSTokenExchange to the same audience; retain both for
+  # VM scanning until that rollout is verified in every supported Region.
   provider_audiences = {
-    for id, f in local.account_flags : id => concat(
-      ["https://sts.googleapis.com"],
-      f.enable_inspector_vm ? ["api://AWSTokenExchange"] : [],
+    for id, f in local.account_flags : id => (
+      f.enable_inspector_vm
+      ? ["https://sts.googleapis.com", "api://AWSTokenExchange"]
+      : ["https://sts.googleapis.com"]
     )
   }
 

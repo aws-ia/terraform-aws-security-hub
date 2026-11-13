@@ -128,11 +128,16 @@ locals {
     "${pair[0]}:${pair[1]}" => { project = pair[0], service = pair[1] }
   }
 
+  # The VM credential bridge (vm_bridge.tf) also needs IAM and IAM Credentials
+  # in each target project, for the minter service accounts.
   target_vm_apis = {
-    for pair in setproduct(tolist(local.vm_targets), [
-      "compute.googleapis.com", "osconfig.googleapis.com",
-      "progressiverollout.googleapis.com", "serviceusage.googleapis.com",
-    ]) : "${pair[0]}:${pair[1]}" => { project = pair[0], service = pair[1] }
+    for pair in setproduct(tolist(local.vm_targets), concat(
+      [
+        "compute.googleapis.com", "osconfig.googleapis.com",
+        "progressiverollout.googleapis.com", "serviceusage.googleapis.com",
+      ],
+      length(local.bridge_accounts) > 0 ? ["iam.googleapis.com", "iamcredentials.googleapis.com"] : [],
+    )) : "${pair[0]}:${pair[1]}" => { project = pair[0], service = pair[1] }
   }
 }
 
