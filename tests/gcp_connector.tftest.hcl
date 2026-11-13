@@ -368,11 +368,8 @@ run "vm_scanning" {
     error_message = "VM scanning must trust the account's Inspector2SSMFederationRole-<organization> as the last subject."
   }
   assert {
-    condition = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist([
-      "https://sts.googleapis.com",
-      "api://AWSTokenExchange",
-    ])
-    error_message = "VM scanning must retain both SSM transition audiences until the rollout is complete in every Region."
+    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
+    error_message = "VM scanning must allow only the Google STS audience."
   }
 }
 
