@@ -904,8 +904,8 @@ run "vm_bridge" {
   }
 
   assert {
-    condition     = google_iam_workload_identity_pool.bridge["111122223333"].workload_identity_pool_id == "inspector-vm-bridge-111122223333" && google_iam_workload_identity_pool.bridge["111122223333"].project == "mgmt-project-1" && length(google_iam_workload_identity_pool.bridge["111122223333"].display_name) <= 32
-    error_message = "The bridge pool must be inspector-vm-bridge-<account> in the management project, with a display name of at most 32 characters."
+    condition     = google_iam_workload_identity_pool.bridge["111122223333"].workload_identity_pool_id == "inspector-vm-bridge-111122223333" && length(google_iam_workload_identity_pool.bridge["111122223333"].workload_identity_pool_id) <= 32 && google_iam_workload_identity_pool.bridge["111122223333"].project == "mgmt-project-1" && length(google_iam_workload_identity_pool.bridge["111122223333"].display_name) <= 32
+    error_message = "The bridge pool must be inspector-vm-bridge-<account> in the management project, with pool and display names of at most 32 characters."
   }
   assert {
     condition = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_mapping == tomap({
@@ -915,7 +915,7 @@ run "vm_bridge" {
       "attribute.instance_id"    = "assertion.google.compute_engine.instance_id"
       "attribute.sa_email"       = "assertion.email"
     })
-    error_message = "The bridge provider must have exactly the five attribute mappings of the setup script."
+    error_message = "The bridge provider must have exactly the five required Compute Engine identity-token attribute mappings."
   }
   assert {
     condition     = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_condition == "attribute.project_number in ['100000000000', '222222222222'] && attribute.instance_id != ''"

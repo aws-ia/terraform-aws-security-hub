@@ -37,8 +37,8 @@ locals {
     "https://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${n.pool}/providers/${n.provider}"
   }
 
-  # Terraform sort() is lexical by code point, matching the setup script's
-  # LC_ALL=C sort -u for both equal- and mixed-length project numbers.
+  # Terraform sort() is lexical by code point, so project numbers have a
+  # deterministic order regardless of their numeric length.
   bridge_project_numbers = sort(distinct([for p in local.vm_targets : local.project_numbers[p]]))
 
   bridge_condition_listed = "attribute.project_number in [${join(", ", formatlist("'%s'", local.bridge_project_numbers))}] && attribute.instance_id != ''"
