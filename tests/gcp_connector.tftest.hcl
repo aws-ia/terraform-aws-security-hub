@@ -368,8 +368,11 @@ run "vm_scanning" {
     error_message = "VM scanning must trust the account's Inspector2SSMFederationRole-<organization> as the last subject."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
-    error_message = "VM scanning must allow only the STS audience, not the retired api://AWSTokenExchange."
+    condition = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist([
+      "https://sts.googleapis.com",
+      "api://AWSTokenExchange",
+    ])
+    error_message = "VM scanning must retain both SSM transition audiences until the rollout is complete in every Region."
   }
 }
 
@@ -383,7 +386,8 @@ run "vm_trust_per_account" {
   command = plan
 
   variables {
-    target_project_ids = ["target-project-1"]
+    enable_inspector_vm_bridge = true
+    target_project_ids         = ["target-project-1"]
     onboarded_accounts = [
       {
         aws_account_id   = "111122223333"
@@ -412,6 +416,14 @@ run "vm_trust_per_account" {
   assert {
     condition     = google_iam_workload_identity_pool_provider.connector["444455556666"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
     error_message = "An account without VM scanning must allow only the STS audience."
+  }
+  assert {
+    condition     = keys(google_iam_workload_identity_pool.bridge) == ["111122223333"]
+    error_message = "Only the account that opts into VM scanning may get a credential bridge."
+  }
+  assert {
+    condition     = keys(google_service_account.minter) == ["target-project-1|111122223333"]
+    error_message = "A non-VM-scanning account must not get a minter service account."
   }
   assert {
     condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]
@@ -869,7 +881,8 @@ run "vm_bridge" {
   command = plan
 
   variables {
-    target_project_ids = ["target-project-1", "target-project-2"]
+    enable_inspector_vm_bridge = true
+    target_project_ids         = ["target-project-1", "target-project-2"]
     onboarded_accounts = [{
       aws_account_id   = "111122223333"
       aws_region       = "us-east-1"
@@ -920,6 +933,10 @@ run "vm_bridge" {
     error_message = "The bridge audience output must equal the provider's allowed audience."
   }
   assert {
+    condition     = !output.inspector_vm_bridge["111122223333"].uses_any_vm_fallback
+    error_message = "A bounded target list must report that it does not use the any-VM fallback."
+  }
+  assert {
     condition     = toset(keys(google_service_account.minter)) == toset(["target-project-1|111122223333", "target-project-2|111122223333"]) && google_service_account.minter["target-project-1|111122223333"].project == "target-project-1" && google_service_account.minter["target-project-1|111122223333"].account_id == "inspector-vmscan-111122223333"
     error_message = "Each target project must get its own minter inspector-vmscan-<account>, in that project."
   }
@@ -946,7 +963,8 @@ run "vm_bridge_condition_fallback" {
   command = plan
 
   variables {
-    target_project_ids = [for i in range(260) : format("target-project-%03d", i)]
+    enable_inspector_vm_bridge = true
+    target_project_ids         = [for i in range(260) : format("target-project-%03d", i)]
     onboarded_accounts = [{
       aws_account_id   = "111122223333"
       aws_region       = "us-east-1"
@@ -998,6 +1016,10 @@ run "vm_bridge_condition_fallback" {
     condition     = google_iam_workload_identity_pool_provider.bridge["111122223333"].attribute_condition == "attribute.project_number != '' && attribute.instance_id != ''"
     error_message = "A project list over 4096 characters must use the any-VM fallback condition."
   }
+  assert {
+    condition     = output.inspector_vm_bridge["111122223333"].uses_any_vm_fallback
+    error_message = "The bridge output must report when the provider uses the any-VM fallback."
+  }
 }
 
 run "vm_bridge_off" {
@@ -1028,9 +1050,8 @@ run "vm_bridge_off" {
   }
 }
 
-# accounts[*].cai_feed is the configured feed name, not the feed_id attribute,
-# which the module ignores and an import leaves empty. A mock plan cannot hold
-# an imported null feed_id, so this pins the value, not its source.
+# accounts[*].cai_feed is the configured feed name because imported feed_id
+# can remain null. The output block explicitly depends on the feed resources.
 run "cai_feed_output" {
   module {
     source = "./modules/gcp_connector"
@@ -1040,7 +1061,7 @@ run "cai_feed_output" {
 
   assert {
     condition     = output.accounts["111122223333"].cai_feed == "config-cai-feed-111122223333"
-    error_message = "accounts[*].cai_feed must be the configured feed name."
+    error_message = "accounts[*].cai_feed must use the configured feed name."
   }
   assert {
     condition     = length(google_iam_workload_identity_pool.bridge) == 0 && output.inspector_vm_bridge == {}

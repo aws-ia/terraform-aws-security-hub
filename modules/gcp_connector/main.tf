@@ -101,11 +101,15 @@ locals {
     "attribute.aws_role in [${join(", ", [for s in subs : "'${s}'"])}]"
   }
 
-  # Every caller, including AWS Systems Manager for VM scanning, requests the
-  # STS audience. SSM no longer requests api://AWSTokenExchange, so it is not
-  # allowed.
+  # AWS Config and Inspector request the STS audience. AWS Systems Manager is
+  # migrating from api://AWSTokenExchange to the same audience; retain both for
+  # VM scanning until that rollout is verified in every supported Region.
   provider_audiences = {
-    for id, f in local.account_flags : id => ["https://sts.googleapis.com"]
+    for id, f in local.account_flags : id => (
+      f.enable_inspector_vm
+      ? ["https://sts.googleapis.com", "api://AWSTokenExchange"]
+      : ["https://sts.googleapis.com"]
+    )
   }
 
   principal_prefix = {

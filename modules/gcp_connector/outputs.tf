@@ -14,6 +14,8 @@ output "accounts" {
       workload_identity_pool_provider     = google_iam_workload_identity_pool_provider.connector[id].name
     }
   }
+
+  depends_on = [google_cloud_asset_organization_feed.cai]
 }
 
 output "custom_roles" {
@@ -32,10 +34,11 @@ output "federation_subjects" {
 }
 
 output "inspector_vm_bridge" {
-  description = "Amazon Inspector VM credential bridge of each account with VM scanning, keyed by AWS account ID: the workload identity pool and provider, the exact audience of the VM identity token, and the minter service account email per target project. Empty when no account has VM scanning or `enable_inspector_vm_bridge` is false."
+  description = "Amazon Inspector VM credential bridge of each account with VM scanning, keyed by AWS account ID: the workload identity pool and provider, the exact audience of the VM identity token, whether the provider uses the any-VM fallback condition, and the minter service account email per target project. Empty when no account has VM scanning or `enable_inspector_vm_bridge` is false."
   value = {
     for id, n in local.bridge_names : id => {
-      audience = local.bridge_audiences[id]
+      audience             = local.bridge_audiences[id]
+      uses_any_vm_fallback = local.bridge_condition == local.bridge_condition_fallback
       minter_emails = {
         for k, m in local.bridge_minters : m.project => google_service_account.minter[k].email if m.account == id
       }

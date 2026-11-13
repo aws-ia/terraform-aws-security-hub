@@ -37,19 +37,18 @@ locals {
     "https://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${n.pool}/providers/${n.provider}"
   }
 
-  # shortcut: sort() is lexical, which equals numeric order only for project
-  # numbers of equal length (usually 12 digits). A mixed-length list orders
-  # differently from the setup script, which changes only the string, not the
-  # set of projects admitted.
+  # Terraform sort() is lexical by code point, matching the setup script's
+  # LC_ALL=C sort -u for both equal- and mixed-length project numbers.
   bridge_project_numbers = sort(distinct([for p in local.vm_targets : local.project_numbers[p]]))
 
   bridge_condition_listed = "attribute.project_number in [${join(", ", formatlist("'%s'", local.bridge_project_numbers))}] && attribute.instance_id != ''"
 
   # Over 4096 characters (about 250 projects), any Compute Engine VM token is
   # admitted. Each minter binding still admits only its own project's VMs.
+  bridge_condition_fallback = "attribute.project_number != '' && attribute.instance_id != ''"
   bridge_condition = (
     length(local.bridge_condition_listed) > 4096
-    ? "attribute.project_number != '' && attribute.instance_id != ''"
+    ? local.bridge_condition_fallback
     : local.bridge_condition_listed
   )
 
@@ -84,6 +83,8 @@ resource "google_iam_workload_identity_pool_provider" "bridge" {
   disabled                           = false
 
   # The project_number claim is a JSON number, so int() comes first.
+  # The scanner requires each VM to have a service account; its email claim is
+  # mapped here even though the current condition and binding do not use it.
   attribute_mapping = {
     "google.subject"           = "assertion.sub"
     "attribute.project_id"     = "assertion.google.compute_engine.project_id"
