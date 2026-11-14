@@ -101,14 +101,6 @@ locals {
     "attribute.aws_role in [${join(", ", [for s in subs : "'${s}'"])}]"
   }
 
-  # STS always. VM scanning also exchanges tokens for api://AWSTokenExchange.
-  provider_audiences = {
-    for id, f in local.account_flags : id => concat(
-      ["https://sts.googleapis.com"],
-      f.enable_inspector_vm ? ["api://AWSTokenExchange"] : [],
-    )
-  }
-
   principal_prefix = {
     for id, n in local.account_names : id =>
     "principalSet://iam.googleapis.com/projects/${local.project_number}/locations/global/workloadIdentityPools/${n.pool}/attribute.aws_role"
@@ -123,51 +115,19 @@ locals {
   }
 
   ##################################################
-  # Organization reader roles
-  ##################################################
-  always_on_org_roles = [
-    "roles/cloudasset.viewer",
-    "roles/serviceusage.serviceUsageConsumer",
-    "roles/browser",
-    "roles/pubsub.viewer",
-    "roles/iam.securityReviewer",
-  ]
-
-  granular_org_roles = [
-    "roles/artifactregistry.reader", "roles/bigquery.metadataViewer",
-    "roles/cloudfunctions.viewer", "roles/compute.viewer", "roles/container.clusterViewer",
-    "roles/dns.reader", "roles/eventarc.viewer", "roles/datastore.viewer",
-    "roles/iam.serviceAccountViewer", "roles/logging.viewer", "roles/run.viewer",
-    "roles/secretmanager.viewer", "roles/cloudsql.viewer", "roles/storage.bucketViewer",
-    "roles/cloudkms.viewer", "roles/serviceusage.apiKeysViewer", "roles/monitoring.viewer",
-    "roles/dataproc.viewer", "roles/dlp.reader", "roles/orgpolicy.policyViewer",
-    "roles/vpcaccess.viewer", "roles/serviceusage.serviceUsageViewer",
-  ]
-
-  config_read_roles = (
-    var.permission_model == "broad"
-    ? concat(["roles/viewer"], local.always_on_org_roles)
-    : concat(local.always_on_org_roles, local.granular_org_roles)
-  )
-
-  reader_grants = {
-    for pair in setproduct(local.account_ids, local.config_read_roles) :
-    "${pair[0]}|${pair[1]}" => { account = pair[0], role = pair[1] }
-  }
-
-  ##################################################
   # Management project APIs
   ##################################################
   management_apis = toset([
-    "apikeys.googleapis.com", "artifactregistry.googleapis.com", "bigquery.googleapis.com",
+    "accesscontextmanager.googleapis.com", "apikeys.googleapis.com", "appengine.googleapis.com",
+    "artifactregistry.googleapis.com", "bigquery.googleapis.com",
     "cloudasset.googleapis.com", "cloudfunctions.googleapis.com", "cloudkms.googleapis.com",
     "cloudresourcemanager.googleapis.com", "compute.googleapis.com", "container.googleapis.com",
     "dataproc.googleapis.com", "dlp.googleapis.com", "dns.googleapis.com",
     "eventarc.googleapis.com", "firestore.googleapis.com", "iam.googleapis.com",
     "iamcredentials.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com",
     "orgpolicy.googleapis.com", "pubsub.googleapis.com", "run.googleapis.com",
-    "secretmanager.googleapis.com", "sqladmin.googleapis.com", "sts.googleapis.com",
-    "storage.googleapis.com", "vpcaccess.googleapis.com",
+    "secretmanager.googleapis.com", "serviceusage.googleapis.com", "sqladmin.googleapis.com",
+    "sts.googleapis.com", "storage.googleapis.com", "vpcaccess.googleapis.com",
   ])
 }
 
@@ -210,7 +170,7 @@ resource "google_iam_workload_identity_pool" "connector" {
 }
 
 # Accepts only a token whose issuer is the account's issuer, whose audience is
-# allowed, and whose subject is one of the account's trusted roles. The
+# https://sts.googleapis.com, and whose subject is one of the account's trusted roles. The
 # condition and the impersonation bindings below use the same subject list.
 resource "google_iam_workload_identity_pool_provider" "connector" {
   for_each = local.account_names
@@ -230,7 +190,7 @@ resource "google_iam_workload_identity_pool_provider" "connector" {
 
   oidc {
     issuer_uri        = local.account_flags[each.key].issuer_url
-    allowed_audiences = local.provider_audiences[each.key]
+    allowed_audiences = ["https://sts.googleapis.com"]
   }
 }
 
@@ -245,16 +205,6 @@ resource "google_service_account" "connector" {
   display_name = "Config Connector SA"
 
   depends_on = [google_project_service.management]
-}
-
-# google_organization_iam_member, not _binding: _binding is authoritative for
-# the role and would remove its other members.
-resource "google_organization_iam_member" "connector_read" {
-  for_each = local.reader_grants
-
-  org_id = local.org
-  role   = each.value.role
-  member = "serviceAccount:${google_service_account.connector[each.value.account].email}"
 }
 
 # One binding per trusted subject.

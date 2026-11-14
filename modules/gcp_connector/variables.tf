@@ -1,3 +1,25 @@
+variable "config_reader_role_id" {
+  description = "ID of the organization custom role that holds the connector's read permissions. The module creates the role at `organization_id` and grants it to every connector service account. The role is shared by every deployment in the organization that uses the same ID; choose a different ID when another system already owns a role with this ID."
+  type        = string
+  default     = "securityHubConfigReader"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9_.]{3,64}$", var.config_reader_role_id))
+    error_message = "config_reader_role_id must be 3-64 characters: letters, digits, underscores and periods."
+  }
+
+  # The Inspector roles use these fixed IDs; sharing one would make two role
+  # resources manage the same organization role.
+  validation {
+    condition = !contains([
+      "inspectorArtifactReader", "inspectorFunctionSourceReader", "OSPolicySSMOrchestrator",
+      "OSPolicySSMProjectOrchestrator", "OSPolicySSMTargetDeployer",
+    ], var.config_reader_role_id)
+    error_message = "config_reader_role_id must differ from the module's Inspector role IDs: inspectorArtifactReader, inspectorFunctionSourceReader, OSPolicySSMOrchestrator, OSPolicySSMProjectOrchestrator and OSPolicySSMTargetDeployer."
+  }
+}
+
 variable "manage_audit_config" {
   description = "Create and own the organization audit configuration that the connector needs: `allServices` `DATA_WRITE` and, with Inspector, `artifactregistry.googleapis.com` `DATA_READ`. Set `false` when another configuration owns the organization audit configuration. The module then creates no audit configuration, the plan stops when a required log type is not enabled, and destroy leaves the audit configuration unchanged. In an existing deployment, run `terraform state rm` on the two `google_organization_iam_audit_config` resources before you change this to `false`, or the next apply removes them."
   type        = bool
@@ -72,18 +94,6 @@ variable "organization_id" {
   validation {
     condition     = can(regex("^[0-9]+$", var.organization_id))
     error_message = "organization_id must be numeric."
-  }
-}
-
-variable "permission_model" {
-  description = "Read access of the connector service accounts at the organization. `broad` grants `roles/viewer` and the always-on reader roles. `granular` grants the always-on reader roles and one viewer role per supported service."
-  type        = string
-  default     = "broad"
-  nullable    = false
-
-  validation {
-    condition     = contains(["broad", "granular"], var.permission_model)
-    error_message = "permission_model must be broad or granular."
   }
 }
 
