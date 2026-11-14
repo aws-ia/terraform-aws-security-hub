@@ -8,6 +8,16 @@ variable "config_reader_role_id" {
     condition     = can(regex("^[a-zA-Z0-9_.]{3,64}$", var.config_reader_role_id))
     error_message = "config_reader_role_id must be 3-64 characters: letters, digits, underscores and periods."
   }
+
+  # The Inspector roles use these fixed IDs; sharing one would make two role
+  # resources manage the same organization role.
+  validation {
+    condition = !contains([
+      "inspectorArtifactReader", "inspectorFunctionSourceReader", "OSPolicySSMOrchestrator",
+      "OSPolicySSMProjectOrchestrator", "OSPolicySSMTargetDeployer",
+    ], var.config_reader_role_id)
+    error_message = "config_reader_role_id must differ from the module's Inspector role IDs: inspectorArtifactReader, inspectorFunctionSourceReader, OSPolicySSMOrchestrator, OSPolicySSMProjectOrchestrator and OSPolicySSMTargetDeployer."
+  }
 }
 
 variable "manage_audit_config" {

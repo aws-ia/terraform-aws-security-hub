@@ -71,7 +71,7 @@ Every connector module takes the same `onboarded_accounts` list, but two attribu
 
 Each connector service account gets these roles at the organization:
 
-- `securityHubConfigReader`, an organization custom role that this module creates (set its ID with `config_reader_role_id`). It holds an explicit list of `get`, `list` and `getIamPolicy` permissions for the resource types that Security Hub records. It does not grant Cloud Storage object bytes, BigQuery table rows or Secret Manager secret values. Resource configuration is readable, including values that resource owners write into it, such as instance metadata and service environment variables.
+- `securityHubConfigReader`, an organization custom role that this module creates (set its ID with `config_reader_role_id`). It holds an explicit list of read permissions for the resource types that Security Hub records. It does not grant Cloud Storage object bytes, BigQuery table rows or Secret Manager secret values. Resource configuration is readable, including values that resource owners write into it, such as instance metadata and service environment variables.
 - Cloud Asset Viewer (`roles/cloudasset.viewer`) for Cloud Asset Inventory.
 - Browser (`roles/browser`) for the folder and project hierarchy.
 - Pub/Sub Viewer (`roles/pubsub.viewer`) for topic and subscription metadata.

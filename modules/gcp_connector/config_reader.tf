@@ -2,8 +2,8 @@
 # Connector read access
 ##################################################
 # Each connector service account reads the organization through one
-# organization custom role with explicit get, list and getIamPolicy
-# permissions for the resource types that Security Hub records, plus four
+# organization custom role with explicit read permissions for the
+# resource types that Security Hub records, plus four
 # predefined roles. The custom role does not grant Cloud Storage object bytes,
 # BigQuery table rows or Secret Manager secret values. Some of its permissions
 # return resource configuration that the resource owner writes, such as

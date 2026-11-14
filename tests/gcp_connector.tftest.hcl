@@ -175,6 +175,10 @@ run "config_only" {
     error_message = "The Config reader permission list must be sorted and have no duplicates."
   }
   assert {
+    condition     = sha256(join(",", local.config_reader_permissions)) == "e5f378c7f0d14a511fe217b33f0bd082c5d60dd657a377394102e1ac414a8399"
+    error_message = "The Config reader permission list changed. Update the digest only together with a reviewed change to the list."
+  }
+  assert {
     condition = length(setintersection(google_organization_iam_custom_role.config_reader.permissions, toset([
       "artifactregistry.repositories.downloadArtifacts",
       "bigquery.tables.getData",
@@ -229,6 +233,20 @@ run "rejects_invalid_config_reader_role_id" {
 
   variables {
     config_reader_role_id = "bad-role-id"
+  }
+
+  expect_failures = [var.config_reader_role_id]
+}
+
+run "config_reader_role_id_clashes_with_inspector_role" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    config_reader_role_id = "inspectorArtifactReader"
   }
 
   expect_failures = [var.config_reader_role_id]
