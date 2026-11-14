@@ -51,6 +51,15 @@ override_data {
   }
 }
 
+# The custom role name as the API returns it.
+override_resource {
+  override_during = plan
+  target          = google_organization_iam_custom_role.config_reader
+  values = {
+    name = "organizations/123456789/roles/securityHubConfigReader"
+  }
+}
+
 # Service identities as the API returns them.
 override_resource {
   override_during = plan
@@ -142,7 +151,7 @@ run "config_only" {
     error_message = "Each trusted subject must get one impersonation binding."
   }
   assert {
-    condition     = length(google_pubsub_subscription.inspector_pull) == 0 && length(google_organization_iam_custom_role.function_source) == 0 && length(google_organization_iam_audit_config.artifactregistry_read) == 0
+    condition     = length(google_pubsub_subscription.inspector_pull) == 0 && length(google_organization_iam_custom_role.function_source) == 0 && length(google_organization_iam_custom_role.artifact_reader) == 0 && length(google_organization_iam_audit_config.artifactregistry_read) == 0
     error_message = "Without Inspector the module must not create Inspector resources."
   }
   assert {
@@ -150,8 +159,39 @@ run "config_only" {
     error_message = "Without VM scanning the module must not create the OS Config service identities or read the access token."
   }
   assert {
-    condition     = contains(keys(google_organization_iam_member.connector_read), "111122223333|roles/viewer")
-    error_message = "The broad permission model must grant roles/viewer."
+    condition     = toset(keys(google_organization_iam_member.connector_read)) == toset(["111122223333|securityHubConfigReader", "111122223333|roles/cloudasset.viewer", "111122223333|roles/serviceusage.serviceUsageConsumer", "111122223333|roles/browser", "111122223333|roles/pubsub.viewer"])
+    error_message = "The connector must get exactly the Config reader custom role and the four always-on roles at the organization."
+  }
+  assert {
+    condition     = google_organization_iam_custom_role.config_reader.role_id == "securityHubConfigReader" && google_organization_iam_custom_role.config_reader.org_id == "123456789" && google_organization_iam_custom_role.config_reader.title == "Security Hub Config Reader"
+    error_message = "The Config reader custom role must be securityHubConfigReader at the organization."
+  }
+  assert {
+    condition     = length(google_organization_iam_custom_role.config_reader.permissions) == 206
+    error_message = "The Config reader custom role must hold exactly 206 permissions."
+  }
+  assert {
+    condition     = sort(local.config_reader_permissions) == tolist(local.config_reader_permissions) && length(google_organization_iam_custom_role.config_reader.permissions) == length(local.config_reader_permissions) && length(distinct(local.config_reader_permissions)) == length(local.config_reader_permissions)
+    error_message = "The Config reader permission list must be sorted and have no duplicates."
+  }
+  assert {
+    condition = length(setintersection(google_organization_iam_custom_role.config_reader.permissions, toset([
+      "artifactregistry.repositories.downloadArtifacts",
+      "bigquery.tables.getData",
+      "cloudfunctions.functions.sourceCodeGet",
+      "secretmanager.versions.access",
+      "storage.objects.get",
+      "storage.objects.list",
+    ]))) == 0
+    error_message = "The Config reader custom role must not read object bytes, table rows, secret values, image contents or function source."
+  }
+  assert {
+    condition     = alltrue([for g in google_organization_iam_member.connector_read : !contains(["roles/viewer", "roles/iam.securityReviewer", "roles/artifactregistry.reader"], g.role)])
+    error_message = "The connector must not get roles/viewer, roles/iam.securityReviewer or roles/artifactregistry.reader."
+  }
+  assert {
+    condition     = toset(keys(google_project_service.management)) == toset(["accesscontextmanager.googleapis.com", "apikeys.googleapis.com", "appengine.googleapis.com", "artifactregistry.googleapis.com", "bigquery.googleapis.com", "cloudasset.googleapis.com", "cloudfunctions.googleapis.com", "cloudkms.googleapis.com", "cloudresourcemanager.googleapis.com", "compute.googleapis.com", "container.googleapis.com", "dataproc.googleapis.com", "dlp.googleapis.com", "dns.googleapis.com", "eventarc.googleapis.com", "firestore.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "logging.googleapis.com", "monitoring.googleapis.com", "orgpolicy.googleapis.com", "pubsub.googleapis.com", "run.googleapis.com", "secretmanager.googleapis.com", "serviceusage.googleapis.com", "sqladmin.googleapis.com", "sts.googleapis.com", "storage.googleapis.com", "vpcaccess.googleapis.com"])
+    error_message = "The management project must enable exactly the connector APIs."
   }
   assert {
     condition     = [for c in google_organization_iam_audit_config.all_services_write[0].audit_log_config : c.log_type] == ["DATA_WRITE"]
@@ -163,7 +203,7 @@ run "config_only" {
   }
 }
 
-run "granular_permissions" {
+run "config_reader_role_id" {
   module {
     source = "./modules/gcp_connector"
   }
@@ -171,17 +211,27 @@ run "granular_permissions" {
   command = plan
 
   variables {
-    permission_model = "granular"
+    config_reader_role_id = "customConfigReader"
   }
 
   assert {
-    condition     = !contains(keys(google_organization_iam_member.connector_read), "111122223333|roles/viewer") && contains(keys(google_organization_iam_member.connector_read), "111122223333|roles/compute.viewer")
-    error_message = "The granular permission model must grant per-service viewer roles instead of roles/viewer."
+    condition     = google_organization_iam_custom_role.config_reader.role_id == "customConfigReader" && contains(keys(google_organization_iam_member.connector_read), "111122223333|customConfigReader")
+    error_message = "config_reader_role_id must name the Config reader custom role and its grant."
   }
-  assert {
-    condition     = length(google_organization_iam_member.connector_read) == 27
-    error_message = "The granular permission model must grant 5 always-on and 22 per-service roles."
+}
+
+run "rejects_invalid_config_reader_role_id" {
+  module {
+    source = "./modules/gcp_connector"
   }
+
+  command = plan
+
+  variables {
+    config_reader_role_id = "bad-role-id"
+  }
+
+  expect_failures = [var.config_reader_role_id]
 }
 
 # Each Region's Inspector subscription follows that Region's own flag.
@@ -259,6 +309,14 @@ run "inspector_subjects" {
   assert {
     condition     = google_organization_iam_custom_role.function_source[0].permissions == toset(["cloudfunctions.functions.sourceCodeGet"])
     error_message = "The function source role must grant only cloudfunctions.functions.sourceCodeGet."
+  }
+  assert {
+    condition     = google_organization_iam_custom_role.artifact_reader[0].role_id == "inspectorArtifactReader" && google_organization_iam_custom_role.artifact_reader[0].permissions == toset(["artifactregistry.repositories.downloadArtifacts"])
+    error_message = "The artifact reader role must be inspectorArtifactReader with only artifactregistry.repositories.downloadArtifacts."
+  }
+  assert {
+    condition     = keys(google_organization_iam_member.inspector_artifact_reader) == ["111122223333"] && keys(google_organization_iam_member.inspector_function_source) == ["111122223333"]
+    error_message = "Each Inspector account must get the artifact reader and function source roles at the organization."
   }
   assert {
     condition     = [for c in google_organization_iam_audit_config.artifactregistry_read[0].audit_log_config : c.log_type] == ["DATA_READ"]
@@ -368,8 +426,8 @@ run "vm_scanning" {
     error_message = "VM scanning must trust the account's Inspector2SSMFederationRole-<organization> as the last subject."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com", "api://AWSTokenExchange"])
-    error_message = "VM scanning must also allow the api://AWSTokenExchange audience."
+    condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
+    error_message = "With VM scanning the provider must still allow only the STS audience."
   }
 }
 
@@ -411,7 +469,7 @@ run "vm_trust_per_account" {
   }
   assert {
     condition     = google_iam_workload_identity_pool_provider.connector["444455556666"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
-    error_message = "An account without VM scanning must not allow api://AWSTokenExchange."
+    error_message = "An account without VM scanning must allow only the STS audience."
   }
   assert {
     condition     = keys(google_organization_iam_member.vm_orchestrator) == ["111122223333"] && keys(google_project_iam_member.vm_deployer) == ["target-project-1|111122223333"]

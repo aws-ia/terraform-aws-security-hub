@@ -22,11 +22,13 @@ locals {
 
   vm_targets = local.any_inspector_vm ? toset(var.target_project_ids) : toset([])
 
+  inspector_artifact_reader_role         = "inspectorArtifactReader"
   inspector_function_source_role         = "inspectorFunctionSourceReader"
   inspector_vm_orchestrator_role         = "OSPolicySSMOrchestrator"
   inspector_vm_project_orchestrator_role = "OSPolicySSMProjectOrchestrator"
   inspector_vm_deployer_role             = "OSPolicySSMTargetDeployer"
 
+  inspector_artifact_reader_permissions = ["artifactregistry.repositories.downloadArtifacts"]
   inspector_function_source_permissions = ["cloudfunctions.functions.sourceCodeGet"]
 
   # Read-only VM, inventory, OS policy, asset, project and service usage
@@ -139,6 +141,21 @@ locals {
 ##################################################
 # Custom roles and grants
 ##################################################
+# Image manifest and layer downloads. Kept out of the Config reader role
+# because it reads image contents, and created only with Inspector.
+resource "google_organization_iam_custom_role" "artifact_reader" {
+  count = local.any_inspector ? 1 : 0
+
+  org_id      = local.org
+  role_id     = local.inspector_artifact_reader_role
+  title       = "Inspector Artifact Reader"
+  description = "Download Artifact Registry image manifests and layers for Amazon Inspector scanning."
+  permissions = local.inspector_artifact_reader_permissions
+  stage       = "GA"
+
+  depends_on = [terraform_data.preflight]
+}
+
 # No predefined role grants cloudfunctions.functions.sourceCodeGet without also
 # granting deploy or modify.
 resource "google_organization_iam_custom_role" "function_source" {
@@ -196,6 +213,14 @@ resource "google_organization_iam_custom_role" "vm_deployer" {
   permissions = local.inspector_vm_deployer_permissions
 
   depends_on = [terraform_data.preflight]
+}
+
+resource "google_organization_iam_member" "inspector_artifact_reader" {
+  for_each = local.inspector_accounts
+
+  org_id = local.org
+  role   = google_organization_iam_custom_role.artifact_reader[0].name
+  member = "serviceAccount:${google_service_account.connector[each.key].email}"
 }
 
 resource "google_organization_iam_member" "inspector_function_source" {
