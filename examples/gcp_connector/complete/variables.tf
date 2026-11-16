@@ -1,3 +1,10 @@
+variable "enable_inspector_vm_bridge" {
+  description = "Create the Amazon Inspector VM credential bridge for accounts with VM scanning. This complete greenfield example enables it; import an existing bridge before applying the example to an existing deployment. Setting false destroys a bridge already managed by this state."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 variable "manage_audit_config" {
   description = "Create and own the organization audit configuration. Set false when another configuration owns it."
   type        = bool

@@ -14,16 +14,18 @@ provider "google-beta" {
 
 # Workload identity federation, connector service accounts, organization log
 # sinks and Cloud Asset Inventory feeds, Pub/Sub, the organization audit
-# configuration, and the Amazon Inspector additions. See the module
+# configuration, and the Amazon Inspector additions, including the VM
+# credential bridge. See the module
 # documentation for the permissions that the google provider identity needs.
 module "gcp_connector" {
   source = "../../../modules/gcp_connector"
 
-  manage_audit_config    = var.manage_audit_config
-  onboarded_accounts     = var.onboarded_accounts
-  organization_id        = var.organization_id
-  project_id             = var.project_id
-  pubsub_kms_key_name    = var.pubsub_kms_key_name
-  target_project_ids     = var.target_project_ids
-  vm_orchestrator_parent = var.vm_orchestrator_parent
+  enable_inspector_vm_bridge = var.enable_inspector_vm_bridge
+  manage_audit_config        = var.manage_audit_config
+  onboarded_accounts         = var.onboarded_accounts
+  organization_id            = var.organization_id
+  project_id                 = var.project_id
+  pubsub_kms_key_name        = var.pubsub_kms_key_name
+  target_project_ids         = var.target_project_ids
+  vm_orchestrator_parent     = var.vm_orchestrator_parent
 }
