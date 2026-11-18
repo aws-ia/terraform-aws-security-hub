@@ -125,10 +125,9 @@ run "config_only" {
   assert {
     condition = google_iam_workload_identity_pool_provider.connector["111122223333"].attribute_condition == join("", [
       "attribute.aws_role in [",
-      "'arn:aws:iam::111122223333:role/AWSConfigThirdPartyCloudFederationRole', ",
       "'arn:aws:iam::111122223333:role/aws-service-role/thirdparty.config.amazonaws.com/AWSServiceRoleForConfigThirdParty']",
     ])
-    error_message = "Without Inspector the provider must trust exactly the two AWS Config subjects, in order."
+    error_message = "Without Inspector the provider must trust exactly the AWS Config service-linked role."
   }
   assert {
     condition     = google_iam_workload_identity_pool_provider.connector["111122223333"].oidc[0].allowed_audiences == tolist(["https://sts.googleapis.com"])
@@ -147,8 +146,8 @@ run "config_only" {
     error_message = "The discovery label must be <account>-<region>-<management project>."
   }
   assert {
-    condition     = length(keys(google_service_account_iam_member.impersonation)) == 2
-    error_message = "Each trusted subject must get one impersonation binding."
+    condition     = length(keys(google_service_account_iam_member.impersonation)) == 1
+    error_message = "The Config service-linked role must get one impersonation binding."
   }
   assert {
     condition     = length(google_pubsub_subscription.inspector_pull) == 0 && length(google_organization_iam_custom_role.function_source) == 0 && length(google_organization_iam_custom_role.artifact_reader) == 0 && length(google_organization_iam_audit_config.artifactregistry_read) == 0
@@ -314,11 +313,10 @@ run "inspector_subjects" {
   assert {
     condition = google_iam_workload_identity_pool_provider.connector["111122223333"].attribute_condition == join("", [
       "attribute.aws_role in [",
-      "'arn:aws:iam::111122223333:role/AWSConfigThirdPartyCloudFederationRole', ",
       "'arn:aws:iam::111122223333:role/aws-service-role/thirdparty.config.amazonaws.com/AWSServiceRoleForConfigThirdParty', ",
       "'arn:aws:iam::111122223333:role/aws-service-role/thirdparty.inspector2.amazonaws.com/AWSServiceRoleForAmazonInspector2ThirdParty']",
     ])
-    error_message = "The Amazon Inspector service-linked role must be the third subject."
+    error_message = "The Amazon Inspector service-linked role must be the second subject."
   }
   assert {
     condition     = contains(keys(google_service_account_iam_member.impersonation), "111122223333|arn:aws:iam::111122223333:role/aws-service-role/thirdparty.inspector2.amazonaws.com/AWSServiceRoleForAmazonInspector2ThirdParty")
@@ -759,7 +757,7 @@ run "project_number_from_preflight_record" {
     error_message = "The project number must come from the google_projects record."
   }
   assert {
-    condition     = startswith(google_service_account_iam_member.impersonation["111122223333|arn:aws:iam::111122223333:role/AWSConfigThirdPartyCloudFederationRole"].member, "principalSet://iam.googleapis.com/projects/333333333333/")
+    condition     = startswith(google_service_account_iam_member.impersonation["111122223333|arn:aws:iam::111122223333:role/aws-service-role/thirdparty.config.amazonaws.com/AWSServiceRoleForConfigThirdParty"].member, "principalSet://iam.googleapis.com/projects/333333333333/")
     error_message = "The principalSet path must use the project number from the google_projects record."
   }
 }

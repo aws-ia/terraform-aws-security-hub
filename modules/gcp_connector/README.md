@@ -194,6 +194,7 @@ This version changes live resources of an existing deployment:
   ```
 
   The first apply also revokes the removed roles, because they are instances of the same resource. If that is not acceptable, accept the short gap instead; it clears on its own once the new grant propagates.
+- **AWS Config now federates only as its service-linked role.** Existing providers are updated in place to remove the earlier additional Config federation subject, and Terraform destroys its matching `roles/iam.workloadIdentityUser` binding on each connector service account. Review the plan for one provider update and one removed binding per account. This module does not manage AWS roles.
 - **`api://AWSTokenExchange` is removed from every connector provider.** Existing providers are updated in place to allow only `https://sts.googleapis.com`. AWS Config, Inspector and Systems Manager request only that audience; this was validated end to end with a Security Hub GCP connector whose CSPM, Inspector VM, function and container image findings were delivered with only `https://sts.googleapis.com` allowed.
 - **The VM credential bridge is opt-in.** Leave `enable_inspector_vm_bridge = false` until you have imported any existing bridge (see VM credential bridge).
 
@@ -211,7 +212,7 @@ A destroyed workload identity pool, connector or bridge, stays soft-deleted for 
 ### Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9.0 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | >= 6.50 |
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | >= 7.27 |
@@ -219,7 +220,7 @@ A destroyed workload identity pool, connector or bridge, stays soft-deleted for 
 ### Providers
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="provider_google"></a> [google](#provider\_google) | >= 6.50 |
 | <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | >= 7.27 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
@@ -231,7 +232,7 @@ No modules.
 ### Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [google-beta_google_organization_service_identity.orchestrator](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_organization_service_identity) | resource |
 | [google-beta_google_project_service_identity.cloud_asset](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
 | [google-beta_google_project_service_identity.pubsub](https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/google_project_service_identity) | resource |
@@ -291,7 +292,7 @@ No modules.
 ### Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_onboarded_accounts"></a> [onboarded\_accounts](#input\_onboarded\_accounts) | AWS account and Region pairs that read from this GCP organization.<br/>`aws_account_id`      - 12-digit AWS account ID. Names the workload identity pool and provider, the service account, the log sinks, the Cloud Asset Inventory feed and the topics.<br/>`aws_region`          - AWS Region of the connector, for example `us-east-1`. Names the Pub/Sub subscriptions and forms their discovery label.<br/>`issuer_url`          - The account's outbound identity federation issuer URL, `https://<id>.tokens.sts.global.api.aws`.<br/>`enable_cspm`         - Enable the CSPM pipeline. Defaults to `true`. The shared AWS Config resources are always created, so this module does not read it; accepted so every connector module takes the same list.<br/>`enable_inspector`    - Enable Amazon Inspector for this account and Region. Defaults to `false`. Adds Inspector federation, Cloud Functions source access, the image-pull log route and the Artifact Registry read audit log.<br/>`enable_inspector_vm` - With `enable_inspector` and a nonempty `target_project_ids`, trust this account's VM scanning role, grant it the OS policy orchestrator role at the organization and the VM deployer role in each target project. Defaults to `true`. Set `false` for an Inspector account that must not get VM access.<br/>An account can appear once per Region. Per-account resources are created once per account; Inspector is on for an account when any of its Regions enables it. | <pre>list(object({<br/>    aws_account_id      = string<br/>    aws_region          = string<br/>    issuer_url          = string<br/>    enable_cspm         = optional(bool, true)<br/>    enable_inspector    = optional(bool, false)<br/>    enable_inspector_vm = optional(bool, true)<br/>  }))</pre> | n/a | yes |
 | <a name="input_organization_id"></a> [organization\_id](#input\_organization\_id) | Numeric ID of the GCP organization to onboard. The log sinks, Cloud Asset Inventory feeds, reader roles, custom roles and audit configuration are created at this organization. | `string` | n/a | yes |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | ID of the GCP management project. It holds the service accounts, workload identity pools, topics and subscriptions, and must be in `organization_id`. Configure it as the provider's billing project. | `string` | n/a | yes |
@@ -305,7 +306,7 @@ No modules.
 ### Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_accounts"></a> [accounts](#output\_accounts) | Per-account resources, keyed by AWS account ID. `workload_identity_audience` is the exact audience for the token exchange. The sink writer identities are the principals that publish to the topics. |
 | <a name="output_custom_roles"></a> [custom\_roles](#output\_custom\_roles) | Names of the custom roles that the module creates. `config_reader` is always set; the others are null when the module does not create them. |
 | <a name="output_federation_subjects"></a> [federation\_subjects](#output\_federation\_subjects) | AWS IAM role ARNs that each account's workload identity provider trusts, keyed by AWS account ID. |

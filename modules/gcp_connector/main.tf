@@ -77,13 +77,11 @@ locals {
   # Federation
   ##################################################
   # Plain role ARNs, the `sub` claim of the AWS token. AWS Config federates as
-  # either its customer-managed role or its service-linked role, so both are
-  # always trusted. Keep this order: a tool that rechecks an existing provider
-  # compares the exact ordered list.
+  # its service-linked role. Keep it first: a tool that rechecks an existing
+  # provider compares the exact ordered list.
   federation_subjects = {
     for id, f in local.account_flags : id => concat(
       [
-        "arn:aws:iam::${id}:role/AWSConfigThirdPartyCloudFederationRole",
         "arn:aws:iam::${id}:role/aws-service-role/thirdparty.config.amazonaws.com/AWSServiceRoleForConfigThirdParty",
       ],
       f.enable_inspector ? [
@@ -95,7 +93,8 @@ locals {
     )
   }
 
-  # There are always at least two subjects, so the condition always uses `in`.
+  # Use list form even for the single Config subject, matching the setup script's
+  # exact provider-condition contract.
   provider_conditions = {
     for id, subs in local.federation_subjects : id =>
     "attribute.aws_role in [${join(", ", [for s in subs : "'${s}'"])}]"
