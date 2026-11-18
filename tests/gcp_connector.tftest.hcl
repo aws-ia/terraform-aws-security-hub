@@ -237,6 +237,34 @@ run "rejects_invalid_config_reader_role_id" {
   expect_failures = [var.config_reader_role_id]
 }
 
+run "rejects_config_reader_role_id_without_alphanumeric" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    config_reader_role_id = "..."
+  }
+
+  expect_failures = [var.config_reader_role_id]
+}
+
+run "rejects_reserved_config_reader_role_id" {
+  module {
+    source = "./modules/gcp_connector"
+  }
+
+  command = plan
+
+  variables {
+    config_reader_role_id = "googReader"
+  }
+
+  expect_failures = [var.config_reader_role_id]
+}
+
 run "config_reader_role_id_clashes_with_inspector_role" {
   module {
     source = "./modules/gcp_connector"

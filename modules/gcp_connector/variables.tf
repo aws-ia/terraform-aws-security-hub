@@ -5,8 +5,12 @@ variable "config_reader_role_id" {
   nullable    = false
 
   validation {
-    condition     = can(regex("^[a-zA-Z0-9_.]{3,64}$", var.config_reader_role_id))
-    error_message = "config_reader_role_id must be 3-64 characters: letters, digits, underscores and periods."
+    condition = (
+      can(regex("^[a-zA-Z0-9_.]{3,64}$", var.config_reader_role_id)) &&
+      can(regex("[a-zA-Z0-9]", var.config_reader_role_id)) &&
+      !startswith(var.config_reader_role_id, "goog")
+    )
+    error_message = "config_reader_role_id must be 3-64 characters using letters, digits, underscores or periods, contain at least one letter or digit, and not start with the reserved prefix 'goog'."
   }
 
   # The Inspector roles use these fixed IDs; sharing one would make two role

@@ -184,14 +184,24 @@ After the import, the next apply sets the role's permissions to exactly this mod
 This version changes live resources of an existing deployment:
 
 - **`permission_model` is removed.** Delete the input from your root module before you plan, or the plan fails with `Unsupported argument`.
-- **Read access changes in one apply.** Each connector service account loses `roles/viewer` (with the old `broad` model) or the per-service viewer roles (with `granular`), and `roles/iam.securityReviewer`, and gains the `securityHubConfigReader` custom role. The four predefined roles that stay are not touched. The revokes and the new grant run in the same apply, and a new custom role grant can take a few minutes to propagate, so the connector can get permission errors on organization reads for those minutes. To avoid the gap, apply the new role and each new grant instance first, check that every connector still reads, then apply the rest. Add one exact `connector_read` instance target per onboarded AWS account, replacing the placeholders below; targeting the whole resource also selects old grant instances for removal.
+- **Read access changes in one apply.** Each connector service account loses `roles/viewer` (with the old `broad` model) or the per-service viewer roles (with `granular`), and `roles/iam.securityReviewer`, and gains the `securityHubConfigReader` custom role. The four predefined roles that stay are not touched. The revokes and the new grant run in the same apply, and a new custom role grant can take a few minutes to propagate, so the connector can get permission errors on organization reads for those minutes. To avoid the gap, apply the new role and each new grant instance first. Add one exact `connector_read` instance target per onboarded AWS account, replacing the placeholders below; targeting the whole resource also selects old grant instances for removal.
 
   ```sh
   terraform apply \
     -target='module.gcp_connector.google_organization_iam_custom_role.config_reader' \
     -target='module.gcp_connector.google_organization_iam_member.connector_read["<account>|<config_reader_role_id>"]'
-  terraform apply
   ```
+
+  Wait at least five minutes for IAM propagation. Then confirm that the organization IAM policy contains the exact custom-role binding for each connector service account:
+
+  ```sh
+  gcloud organizations get-iam-policy <organization_id> \
+    --flatten='bindings[].members' \
+    --filter='bindings.role=organizations/<organization_id>/roles/<config_reader_role_id> AND bindings.members=serviceAccount:config-sa-<account>@<project_id>.iam.gserviceaccount.com' \
+    --format='value(bindings.role,bindings.members)'
+  ```
+
+  A successful connector read is not proof that the new grant has propagated while the old grants remain. Confirm every expected policy row after the wait, then run `terraform apply` without targets to remove the old grants.
 - **AWS Config now federates only as its service-linked role.** Existing providers are updated in place to remove the earlier additional Config federation subject, and Terraform destroys its matching `roles/iam.workloadIdentityUser` binding on each connector service account. Review the plan for one provider update and one removed binding per account. This module does not manage AWS roles.
 - **`api://AWSTokenExchange` is removed from every connector provider.** Existing providers are updated in place to allow only `https://sts.googleapis.com`. AWS Config, Inspector and Systems Manager request only that audience; this was validated end to end with a Security Hub GCP connector whose CSPM, Inspector VM, function and container image findings were delivered with only `https://sts.googleapis.com` allowed.
 - **The VM credential bridge is opt-in.** Leave `enable_inspector_vm_bridge = false` until you have imported any existing bridge (see VM credential bridge).
